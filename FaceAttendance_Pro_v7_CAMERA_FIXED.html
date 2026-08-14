@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<title>FaceAttendance Pro — Cloud</title>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<style>
+  :root {
+    --primary: #6366f1; --primary-dark: #4f46e5; --success: #22c55e; --danger: #ef4444;
+    --warning: #f59e0b; --info: #3b82f6; --bg: #0f172a; --surface: #1e293b;
+    --surface-light: #334155; --text: #f1f5f9; --text-muted: #94a3b8; --border: #334155;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; overflow-x:hidden; }
+  .app { max-width:480px; margin:0 auto; position:relative; min-height:100vh; }
+  .header { background:linear-gradient(135deg,var(--primary),var(--primary-dark)); padding:20px; position:sticky; top:0; z-index:100; box-shadow:0 4px 20px rgba(99,102,241,0.3); }
+  .header h1 { font-size:1.4rem; font-weight:700; }
+  .header p { font-size:0.8rem; opacity:0.8; margin-top:4px; }
+  .nav { display:flex; gap:8px; padding:12px 16px; background:var(--surface); border-bottom:1px solid var(--border); overflow-x:auto; scrollbar-width:none; }
+  .nav::-webkit-scrollbar { display:none; }
+  .nav-btn { flex:1; min-width:80px; padding:10px 14px; border:none; border-radius:12px; background:var(--surface-light); color:var(--text-muted); font-size:0.8rem; font-weight:600; cursor:pointer; transition:all 0.2s; white-space:nowrap; text-align:center; }
+  .nav-btn.active { background:var(--primary); color:white; }
+  .nav-btn:active { transform:scale(0.95); }
+  .section { display:none; padding:16px; padding-bottom:100px; }
+  .section.active { display:block; animation:fadeIn 0.3s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  .card { background:var(--surface); border-radius:16px; padding:16px; margin-bottom:12px; border:1px solid var(--border); }
+  .card-title { font-size:1rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+  .camera-container { position:relative; width:100%; border-radius:16px; overflow:hidden; background:#000; aspect-ratio:4/3; }
+  .camera-container video, .camera-container canvas, .camera-container img { width:100%; height:100%; object-fit:cover; display:block; }
+  .rec-status { position:absolute; top:12px; left:12px; background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); padding:6px 12px; border-radius:20px; font-size:0.75rem; color:white; font-weight:600; display:flex; align-items:center; gap:6px; }
+  .rec-status::before { content:''; width:8px; height:8px; border-radius:50%; background:var(--success); animation:pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:14px 24px; border:none; border-radius:12px; font-size:1rem; font-weight:600; cursor:pointer; transition:all 0.2s; width:100%; margin-top:12px; }
+  .btn-primary { background:var(--primary); color:white; } .btn-primary:active { background:var(--primary-dark); transform:scale(0.98); }
+  .btn-success { background:var(--success); color:white; } .btn-danger { background:var(--danger); color:white; }
+  .btn-info { background:var(--info); color:white; } .btn-outline { background:transparent; border:2px solid var(--border); color:var(--text); }
+  .btn-sm { padding:8px 14px; font-size:0.8rem; width:auto; margin-top:0; }
+  .input-group { margin-bottom:12px; }
+  .input-group label { display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:6px; font-weight:500; }
+  .input-group input, .input-group select { width:100%; padding:14px 16px; border-radius:12px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:1rem; outline:none; transition:border-color 0.2s; }
+  .input-group input:focus, .input-group select:focus { border-color:var(--primary); }
+  .person-card { display:flex; align-items:center; gap:14px; padding:14px; background:var(--surface); border-radius:14px; margin-bottom:10px; border:1px solid var(--border); transition:all 0.2s; }
+  .person-card:active { transform:scale(0.98); }
+  .person-avatar { width:56px; height:56px; border-radius:50%; object-fit:cover; border:2px solid var(--primary); flex-shrink:0; }
+  .person-info { flex:1; min-width:0; }
+  .person-name { font-weight:600; font-size:1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .person-meta { font-size:0.8rem; color:var(--text-muted); margin-top:2px; }
+  .person-actions { display:flex; gap:6px; }
+  .icon-btn { width:36px; height:36px; border-radius:10px; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:1rem; }
+  .icon-btn.edit { background:rgba(99,102,241,0.15); color:var(--primary); }
+  .icon-btn.delete { background:rgba(239,68,68,0.15); color:var(--danger); }
+  .icon-btn.check { background:rgba(34,197,94,0.15); color:var(--success); }
+  .attendance-row { display:flex; align-items:center; gap:12px; padding:12px 14px; background:var(--surface); border-radius:12px; margin-bottom:8px; border:1px solid var(--border); }
+  .attendance-row.present { border-left:4px solid var(--success); } .attendance-row.absent { border-left:4px solid var(--danger); }
+  .status-badge { padding:4px 10px; border-radius:20px; font-size:0.7rem; font-weight:700; text-transform:uppercase; }
+  .status-badge.present { background:rgba(34,197,94,0.15); color:var(--success); } .status-badge.absent { background:rgba(239,68,68,0.15); color:var(--danger); }
+  .modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); display:none; align-items:flex-end; justify-content:center; z-index:200; padding:16px; }
+  .modal-overlay.active { display:flex; }
+  .modal { background:var(--surface); border-radius:24px 24px 0 0; width:100%; max-width:480px; max-height:85vh; overflow-y:auto; padding:24px; animation:slideUp 0.3s ease; }
+  @keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+  .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+  .modal-title { font-size:1.2rem; font-weight:700; } .modal-close { background:none; border:none; color:var(--text-muted); font-size:1.5rem; cursor:pointer; }
+  .stats-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+  .stat-box { background:var(--surface); border-radius:14px; padding:16px; text-align:center; border:1px solid var(--border); }
+  .stat-number { font-size:1.6rem; font-weight:700; color:var(--primary); } .stat-label { font-size:0.75rem; color:var(--text-muted); margin-top:4px; }
+  .toast { position:fixed; bottom:90px; left:50%; transform:translateX(-50%) translateY(100px); background:var(--surface); color:var(--text); padding:14px 24px; border-radius:12px; font-size:0.9rem; font-weight:500; z-index:300; opacity:0; transition:all 0.3s; border:1px solid var(--border); box-shadow:0 10px 40px rgba(0,0,0,0.4); max-width:90%; text-align:center; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); } .toast.success { border-color:var(--success); } .toast.error { border-color:var(--danger); }
+  .loading-screen { position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg); z-index:500; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
+  .spinner { width:50px; height:50px; border:4px solid var(--surface-light); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to{transform:rotate(360deg)} } .loading-text { color:var(--text-muted); font-size:0.9rem; }
+  .sync-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:20px; font-size:0.7rem; font-weight:700; }
+  .sync-badge.synced { background:rgba(34,197,94,0.15); color:var(--success); } .sync-badge.pending { background:rgba(245,158,11,0.15); color:var(--warning); }
+  .date-picker { display:flex; gap:8px; margin-bottom:16px; } .date-picker input { flex:1; }
+  .empty-state { text-align:center; padding:40px 20px; color:var(--text-muted); }
+  .empty-state svg { width:80px; height:80px; margin-bottom:16px; opacity:0.3; }
+  .empty-state h3 { font-size:1.1rem; margin-bottom:8px; color:var(--text); }
+  input[type="file"] { display:none; }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .unknown-panel{position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);display:none;align-items:flex-end;justify-content:center;z-index:450;padding:16px}
+  .unknown-panel.active{display:flex}
+  .unknown-card{width:100%;max-width:480px;background:var(--surface);border:1px solid var(--border);border-radius:24px 24px 0 0;padding:22px;animation:slideUp .25s ease}
+  .unknown-photo{width:110px;height:110px;object-fit:cover;border-radius:18px;display:block;margin:0 auto 14px;border:3px solid var(--warning);background:#000}
+  .unknown-title{text-align:center;font-size:1.2rem;font-weight:700}
+  .unknown-text{text-align:center;color:var(--text-muted);font-size:.85rem;margin:6px 0 16px;line-height:1.45}
+  .scan-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+  .scan-chip{padding:10px 6px;border-radius:12px;background:var(--bg);text-align:center;border:1px solid var(--border)}
+  .scan-chip strong{display:block;font-size:1.15rem;color:var(--primary)}
+  .scan-chip span{font-size:.68rem;color:var(--text-muted)}
+  .camera-help{display:none;margin:12px 0;padding:14px;border:1px solid var(--warning);border-radius:14px;background:rgba(245,158,11,.10);font-size:.82rem;line-height:1.45}
+  .camera-help.active{display:block}
+  .camera-help strong{display:block;margin-bottom:6px}
+  .camera-help ol{margin:8px 0 0 20px;padding:0}
+  .camera-help button{margin-top:10px}
+  .camera-error{display:none;margin:10px 0;padding:10px;border-radius:10px;background:rgba(239,68,68,.10);color:#ef4444;font-size:.78rem}
+  .camera-error.active{display:block}
+  .https-banner { display:none; background:var(--danger); color:white; padding:12px 16px; font-size:0.85rem; font-weight:600; text-align:center; }
+  .https-banner.active { display:block; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="https-banner" id="httpsBanner">
+    ⚠️ Camera requires HTTPS. Upload this file to a free host like Netlify Drop or GitHub Pages, then open that link on your phone.
+  </div>
+
+  <div class="loading-screen" id="loadingScreen">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading Face Recognition Models...</div>
+    <div class="loading-text" style="font-size:0.75rem; margin-top:-10px;">This may take a moment on first load</div>
+  </div>
+
+  <div class="header">
+    <h1>📸 FaceAttendance Cloud</h1>
+    <p>Face recognition attendance • Google Sheets master database</p>
+    <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+      <span class="sync-badge pending" id="syncBadge">⏳ Local Only</span>
+      <button class="btn btn-sm btn-success" style="width:auto; margin:0; padding:6px 12px; font-size:0.7rem;" onclick="syncToGoogle()">☁️ Sync Now</button>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button class="nav-btn active" onclick="showSection('register')">📝 Register</button>
+    <button class="nav-btn" onclick="showSection('attendance')">📷 Attendance</button>
+    <button class="nav-btn" onclick="showSection('records')">📊 Records</button>
+    <button class="nav-btn" onclick="showSection('people')">👥 People</button>
+    <button class="nav-btn" onclick="showSection('cloud')">☁️ Cloud</button>
+  </div>
+
+  <!-- REGISTER -->
+  <div class="section active" id="section-register">
+    <div class="stats-grid">
+      <div class="stat-box"><div class="stat-number" id="statTotal">0</div><div class="stat-label">Registered</div></div>
+      <div class="stat-box"><div class="stat-number" id="statToday">0</div><div class="stat-label">Today</div></div>
+      <div class="stat-box"><div class="stat-number" id="statRate">0%</div><div class="stat-label">Rate</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📷 Capture Photo</div>
+      <div class="camera-container" id="registerCamera">
+        <video id="registerVideo" autoplay playsinline muted></video>
+        <canvas id="registerCanvas" style="display:none;"></canvas>
+        <img id="registerPreview" style="display:none;">
+      </div>
+      <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+        <button class="btn btn-primary" id="btnOpenRegisterCamera" onclick="openRegistrationCamera()">📷 Open Rear Camera</button>
+        <button class="btn btn-success" id="btnCapture" style="display:none;" onclick="capturePhoto()">📸 Take Photo</button>
+        <button class="btn btn-outline" id="btnRetake" style="display:none;" onclick="retakePhoto()">🔄 Retake</button>
+      </div>
+      <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">📁 Use Phone Camera / Upload</button>
+      <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFileUpload(event)">
+      <div id="cameraHelp" style="font-size:.72rem;color:var(--text-muted);margin-top:8px;">
+        On mobile, tap <b>Open Rear Camera</b>. If your browser cannot open the live camera, use <b>Use Phone Camera / Upload</b>.
+      </div>
+      <div class="camera-help" id="cameraPermissionHelp">
+        <strong>📷 Camera permission is required</strong>
+        <div id="cameraHelpText">Allow camera access for this site. If you previously selected "Block", open your browser's site permissions and change Camera to "Allow", then reload this page.</div>
+        <ol id="cameraAndroidSteps">
+          <li>Tap the browser's 🔒 / site settings icon beside the address.</li>
+          <li>Open <b>Permissions</b> or <b>Site settings</b>.</li>
+          <li>Set <b>Camera → Allow</b>.</li>
+          <li>Reload FaceAttendance Pro and tap <b>Open Rear Camera</b> again.</li>
+        </ol>
+        <button type="button" class="btn btn-primary" onclick="retryCameraPermission()">🔐 Allow Camera / Try Again</button>
+        <button type="button" class="btn btn-outline" onclick="openPhoneCameraFallback()">📱 Use Phone Camera Instead</button>
+      </div>
+      <div class="camera-error" id="cameraError"></div>
+    </div>
+    <div class="card" id="registerForm" style="display:none;">
+      <div class="card-title">👤 Person Details</div>
+      <div class="input-group"><label>Full Name *</label><input type="text" id="regName" placeholder="Enter full name"></div>
+      <div class="two-col">
+        <div class="input-group"><label>Phone Number *</label><input type="tel" id="regPhone" placeholder="e.g. +234..." pattern="[0-9+\-\s]*"></div>
+        <div class="input-group"><label>Auto ID Number</label><input type="text" id="regId" placeholder="Select group first" readonly></div>
+      </div>
+      <div class="input-group"><label>Group / Class *</label><input type="text" id="regGroup" placeholder="e.g. Class 10A" oninput="previewAutoId()"></div>
+      <div class="card-title" style="margin-top:14px;">👨‍👩‍👧 Parent / Guardian Details</div>
+      <div class="input-group"><label>Parent / Guardian Name</label><input type="text" id="regParentName" placeholder="Enter parent or guardian name"></div>
+      <div class="input-group"><label>Parent / Guardian Phone</label><input type="tel" id="regParentPhone" placeholder="e.g. +234..."></div>
+      <button class="btn btn-success" onclick="savePerson()">✅ Save Person</button>
+    </div>
+  </div>
+
+  <!-- ATTENDANCE -->
+  <div class="section" id="section-attendance">
+    <div class="card">
+      <div class="card-title">🎯 Face Recognition Mode</div>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Point camera at registered faces. Auto-detects and marks present.</p>
+      <div class="camera-container" id="attendanceCamera">
+        <video id="attendanceVideo" autoplay playsinline muted></video>
+        <canvas id="attendanceOverlay"></canvas>
+        <div class="rec-status" id="recStatus">Scanning...</div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:12px;">
+        <button class="btn btn-primary" id="btnStartRec" onclick="startRecognition()">▶️ Start Scan</button>
+        <button class="btn btn-danger" id="btnStopRec" style="display:none;" onclick="stopRecognition()">⏹️ Stop</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">📋 Manual Check-In</div>
+      <div class="input-group"><label>Select Person</label><select id="manualPerson"><option value="">-- Choose person --</option></select></div>
+      <div class="input-group"><label>Date</label><input type="date" id="manualDate"></div>
+      <button class="btn btn-success" onclick="manualCheckIn()">✅ Mark Present</button>
+    </div>
+    <div class="card">
+      <div class="card-title">📅 Today's Attendance</div>
+      <div class="scan-summary">
+        <div class="scan-chip"><strong id="scanRegistered">0</strong><span>Registered</span></div>
+        <div class="scan-chip"><strong id="scanPresent">0</strong><span>Present</span></div>
+        <div class="scan-chip"><strong id="scanAbsent">0</strong><span>Absent</span></div>
+      </div>
+      <div id="todayAttendanceList" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
+  <!-- RECORDS -->
+  <div class="section" id="section-records">
+    <div class="card">
+      <div class="card-title">🔍 Filter Records</div>
+      <div class="date-picker"><input type="date" id="filterDate" onchange="loadRecords()"><button class="btn btn-sm btn-outline" onclick="setToday()">Today</button></div>
+      <div class="input-group"><label>Filter by Group</label><select id="filterGroup" onchange="loadRecords()"><option value="">All Groups</option></select></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📊 Attendance Records</div>
+      <div id="recordsList"></div>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-primary" onclick="exportCSV()">📥 Export CSV</button>
+      <button class="btn btn-outline" onclick="exportJSON()">📥 Export JSON</button>
+    </div>
+  </div>
+
+  <!-- PEOPLE -->
+  <div class="section" id="section-people">
+    <div class="card">
+      <div class="card-title">👥 Registered People</div>
+      <div class="input-group"><input type="text" id="searchPeople" placeholder="🔍 Search by name or phone..." oninput="renderPeople()"></div>
+      <div id="peopleList"></div>
+    </div>
+  </div>
+
+  <!-- CLOUD -->
+  <div class="section" id="section-cloud">
+    <div class="card">
+      <div class="card-title">☁️ Google Sheets Sync</div>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Connect to your Google Sheet to backup and sync attendance data across devices.</p>
+      <div class="input-group">
+        <label>Google Apps Script Web App URL</label>
+        <input type="url" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec">
+      </div>
+      <button class="btn btn-primary" onclick="saveScriptUrl()">💾 Save URL</button>
+      <button class="btn btn-success" onclick="syncToGoogle()">⬆️ Push to Google Sheet</button>
+      <button class="btn btn-info" onclick="syncFromGoogle()">⬇️ Pull from Google Sheet</button>
+      <button class="btn btn-outline" onclick="clearLocalData()">🗑️ Clear Local Data</button>
+    </div>
+    <div class="card">
+      <div class="card-title">📱 Mobile Camera &amp; API Check</div>
+      <div id="mobileDiagnostic" style="font-size:.82rem;line-height:1.55;color:var(--text-muted);">Checking browser, HTTPS, camera permission and Google API connection...</div>
+      <button class="btn btn-outline" onclick="runMobileDiagnostics()">🔎 Run Check Again</button>
+    </div>
+    <div class="card">
+      <div class="card-title">📖 Setup Instructions</div>
+      <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.6;">
+        <p><strong>1.</strong> Open Google Sheets → Create a new blank spreadsheet.</p>
+        <p><strong>2.</strong> Go to <strong>Extensions → Apps Script</strong>.</p>
+        <p><strong>3.</strong> Paste the provided Apps Script code (see file).</p>
+        <p><strong>4.</strong> Click <strong>Deploy → New deployment</strong>.</p>
+        <p><strong>5.</strong> Choose type: <strong>Web app</strong>.</p>
+        <p><strong>6.</strong> Set "Who has access" to <strong>Anyone</strong>.</p>
+        <p><strong>7.</strong> Copy the Web App URL and paste it above.</p>
+        <p><strong>8.</strong> Click <strong>Save URL</strong>, then <strong>Push to Google Sheet</strong>.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- UNKNOWN PERSON -->
+  <div class="unknown-panel" id="unknownPanel">
+    <div class="unknown-card">
+      <img id="unknownPhoto" class="unknown-photo" alt="Unknown person">
+      <div class="unknown-title">🔴 Unknown Person Detected</div>
+      <div class="unknown-text">This face is not in the registered database. Add this person now so they can be recognized on future attendance days.</div>
+      <div class="input-group"><label>Full Name *</label><input type="text" id="unknownName" placeholder="Enter full name"></div>
+      <div class="two-col">
+        <div class="input-group"><label>Phone Number *</label><input type="tel" id="unknownPhone" placeholder="+234..."></div>
+        <div class="input-group"><label>Auto ID Number</label><input type="text" id="unknownId" placeholder="Select group first" readonly></div>
+      </div>
+      <div class="input-group"><label>Group / Class *</label><input type="text" id="unknownGroup" placeholder="e.g. Class 10A" oninput="previewUnknownAutoId()"></div>
+      <div class="input-group"><label>Parent / Guardian Name</label><input type="text" id="unknownParentName" placeholder="Enter parent or guardian name"></div>
+      <div class="input-group"><label>Parent / Guardian Phone</label><input type="tel" id="unknownParentPhone" placeholder="e.g. +234..."></div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-outline" onclick="closeUnknownPanel()">Later</button>
+        <button class="btn btn-success" onclick="registerUnknownPerson()">✅ Register Person</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT MODAL -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <div class="modal-header"><div class="modal-title">✏️ Edit Person</div><button class="modal-close" onclick="closeModal()">&times;</button></div>
+      <div class="input-group"><label>Full Name</label><input type="text" id="editName"></div>
+      <div class="two-col">
+        <div class="input-group"><label>Phone Number</label><input type="tel" id="editPhone" pattern="[0-9+\-\s]*"></div>
+        <div class="input-group"><label>ID / Roll Number</label><input type="text" id="editId"></div>
+      </div>
+      <div class="input-group"><label>Group / Class</label><input type="text" id="editGroup"></div>
+      <div class="input-group"><label>Parent / Guardian Name</label><input type="text" id="editParentName"></div>
+      <div class="input-group"><label>Parent / Guardian Phone</label><input type="tel" id="editParentPhone"></div>
+      <input type="hidden" id="editPersonId">
+      <button class="btn btn-success" onclick="updatePerson()">💾 Save Changes</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+// ===================== DATA STORE =====================
+const DB = {
+  people: JSON.parse(localStorage.getItem('fa_people') || '[]'),
+  attendance: JSON.parse(localStorage.getItem('fa_attendance') || '[]'),
+  scriptUrl: localStorage.getItem('fa_script_url') || '',
+  pendingSync: JSON.parse(localStorage.getItem('fa_pending') || 'false'),
+
+  savePeople() { localStorage.setItem('fa_people', JSON.stringify(this.people)); this.setPending(true); },
+  saveAttendance() { localStorage.setItem('fa_attendance', JSON.stringify(this.attendance)); this.setPending(true); },
+  saveScriptUrl(url) { if(url) { this.scriptUrl = url; localStorage.setItem('fa_script_url', url); } },
+  setPending(v) { this.pendingSync = v; localStorage.setItem('fa_pending', JSON.stringify(v)); updateSyncBadge(); },
+
+  addPerson(person) { this.people.push(person); this.savePeople(); },
+  updatePerson(id, data) {
+    const idx = this.people.findIndex(p => p.id === id);
+    if (idx >= 0) { this.people[idx] = { ...this.people[idx], ...data }; this.savePeople(); }
+  },
+  deletePerson(id) {
+    this.people = this.people.filter(p => p.id !== id);
+    this.attendance = this.attendance.filter(a => a.personId !== id);
+    this.savePeople(); this.saveAttendance();
+  },
+  markAttendance(personId, date, method='manual') {
+    const exists = this.attendance.find(a => String(a.personId) === String(personId) && a.date === date);
+    if (!exists) {
+      this.attendance.push({ id: Date.now()+Math.random(), personId, date, method, time: new Date().toLocaleTimeString() });
+      this.saveAttendance(); return true;
+    }
+    return false;
+  },
+  findDuplicatePerson(name, descriptor, ignoreId=null) {
+    const normalized = normalizeName(name);
+    if (!normalized || !descriptor) return null;
+    for (const p of this.people) {
+      if (ignoreId !== null && String(p.id) === String(ignoreId)) continue;
+      if (normalizeName(p.name) !== normalized || !p.descriptor) continue;
+      const distance = faceDistance(descriptor, p.descriptor);
+      if (distance <= FACE_DUPLICATE_THRESHOLD) return { person:p, distance };
+    }
+    return null;
+  },
+  removeAttendance(personId, date) {
+    this.attendance = this.attendance.filter(a => !(a.personId === personId && a.date === date));
+    this.saveAttendance();
+  },
+  getAttendanceForDate(date) { return this.attendance.filter(a => a.date === date); },
+  getToday() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  },
+  importAll(data) {
+    if (data.people) { this.people = data.people; this.savePeople(); }
+    if (data.attendance) { this.attendance = data.attendance; this.saveAttendance(); }
+    buildFaceMatcher(); updateStats(); renderPeople(); populateSelects(); loadRecords(); loadTodayAttendance();
+    this.setPending(false);
+  }
+};
+
+function updateSyncBadge() {
+  const el = document.getElementById('syncBadge');
+  if (DB.scriptUrl && !DB.pendingSync) {
+    el.className = 'sync-badge synced'; el.textContent = 'Synced to Google';
+  } else if (DB.scriptUrl && DB.pendingSync) {
+    el.className = 'sync-badge pending'; el.textContent = 'Sync Pending';
+  } else {
+    el.className = 'sync-badge pending'; el.textContent = 'Local Only';
+  }
+}
+
+// ===================== GOOGLE SYNC =====================
+async function syncToGoogle() {
+  if (!DB.scriptUrl) { showToast('Please set your Google Apps Script URL in Cloud tab', 'error'); showSection('cloud'); return; }
+  showToast('Syncing to Google Sheet...', 'success');
+  try {
+    const payload = {
+      action: 'save',
+      people: DB.people.map(p => ({...p, descriptor: JSON.stringify(p.descriptor)})),
+      attendance: DB.attendance
+    };
+    const res = await fetch(DB.scriptUrl, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {'Content-Type':'text/plain;charset=utf-8'}
+    });
+    const text = await res.text();
+    let result;
+    try { result = JSON.parse(text); } catch (_) { result = null; }
+    if (result && result.success === true) {
+      DB.setPending(false);
+      showToast('Data synced to Google Sheet!', 'success');
+    } else {
+      showToast('Sync response: ' + text, 'error');
+    }
+  } catch(e) { showToast('Sync failed: ' + e.message, 'error'); }
+}
+
+async function syncFromGoogle() {
+  if (!DB.scriptUrl) { showToast('Please set your Google Apps Script URL in Cloud tab', 'error'); showSection('cloud'); return; }
+  showToast('Pulling from Google Sheet...', 'success');
+  try {
+    const res = await fetch(DB.scriptUrl + '?action=load', { cache: 'no-store' });
+    if (!res.ok) throw new Error('Google Apps Script returned HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (data.people) {
+      data.people.forEach(p => {
+        if (typeof p.descriptor === 'string') {
+          try { p.descriptor = JSON.parse(p.descriptor); } catch (_) { p.descriptor = null; }
+        }
+      });
+    }
+    DB.importAll(data);
+    showToast('Data restored from Google Sheet!', 'success');
+  } catch(e) { showToast('Pull failed: ' + e.message, 'error'); }
+}
+
+function saveScriptUrl() {
+  const url = document.getElementById('scriptUrl').value.trim();
+  if (!url) { showToast('Please enter a valid URL', 'error'); return; }
+  DB.saveScriptUrl(url);
+  updateSyncBadge();
+  showToast('URL saved!', 'success');
+}
+
+function clearLocalData() {
+  if (!confirm('This will erase ALL local data. Make sure you have synced to Google first! Continue?')) return;
+  localStorage.removeItem('fa_people'); localStorage.removeItem('fa_attendance');
+  DB.people = []; DB.attendance = [];
+  buildFaceMatcher(); updateStats(); renderPeople(); populateSelects(); loadRecords(); loadTodayAttendance();
+  showToast('Local data cleared', 'success');
+}
+
+// ===================== FACE API =====================
+let modelsLoaded = false, faceMatcher = null, recognitionInterval = null, currentStream = null;
+let capturedDescriptor = null, capturedImage = null;
+
+const FACE_DUPLICATE_THRESHOLD = 0.60;
+let pendingUnknown = null;
+
+function normalizeGroupCode(group) {
+  const raw = String(group || 'General').trim().toUpperCase();
+  const code = raw.replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 12);
+  return code || 'GENERAL';
+}
+
+function nextPersonId(group) {
+  const code = normalizeGroupCode(group);
+  let max = 0;
+  DB.people.forEach(p => {
+    const id = String(p.idNum || '').toUpperCase();
+    const match = id.match(new RegExp('^' + code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(\d+)$'));
+    if (match) max = Math.max(max, parseInt(match[1], 10) || 0);
+  });
+  return `${code}-${String(max + 1).padStart(3, '0')}`;
+}
+
+function normalizeName(name) {
+  return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function faceDistance(a, b) {
+  if (!a || !b || a.length !== b.length) return Infinity;
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = Number(a[i]) - Number(b[i]);
+    sum += d * d;
+  }
+  return Math.sqrt(sum);
+}
+
+function captureCanvasFrame(video) {
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function openUnknownPanel(descriptor, canvas) {
+  if (pendingUnknown) return;
+  pendingUnknown = { descriptor:Array.from(descriptor), photo:canvas.toDataURL('image/jpeg',0.88) };
+  document.getElementById('unknownPhoto').src = pendingUnknown.photo;
+  document.getElementById('unknownName').value = '';
+  document.getElementById('unknownPhone').value = '';
+  document.getElementById('unknownId').value = '';
+  document.getElementById('unknownGroup').value = '';
+  document.getElementById('unknownParentName').value = '';
+  document.getElementById('unknownParentPhone').value = '';
+  document.getElementById('unknownPanel').classList.add('active');
+  stopRecognition();
+}
+
+function closeUnknownPanel() {
+  document.getElementById('unknownPanel').classList.remove('active');
+  pendingUnknown = null;
+}
+
+function previewUnknownAutoId() {
+  const group = document.getElementById('unknownGroup').value.trim();
+  document.getElementById('unknownId').value = group ? nextPersonId(group) : '';
+}
+
+function registerUnknownPerson() {
+  if (!pendingUnknown) return;
+  const name = document.getElementById('unknownName').value.trim();
+  const phone = document.getElementById('unknownPhone').value.trim();
+  const group = document.getElementById('unknownGroup').value.trim();
+  const parentName = document.getElementById('unknownParentName').value.trim();
+  const parentPhone = document.getElementById('unknownParentPhone').value.trim();
+  if (!name || !phone || !group) { showToast('Name, phone and group/class are required', 'error'); return; }
+  const duplicate = DB.findDuplicatePerson(name, pendingUnknown.descriptor);
+  if (duplicate) { showToast('This name + face is already registered', 'error'); return; }
+  const idNum = nextPersonId(group);
+  const person = {
+    id: Date.now(), name, phone, idNum, group, parentName, parentPhone,
+    descriptor: pendingUnknown.descriptor, photo: pendingUnknown.photo, createdAt: new Date().toISOString()
+  };
+  DB.addPerson(person); buildFaceMatcher(); populateSelects(); renderPeople(); updateStats();
+  if (DB.markAttendance(person.id, DB.getToday(), 'face')) { loadTodayAttendance(); }
+  closeUnknownPanel();
+  showToast(`${name} registered as ${idNum} and marked present!`, 'success');
+}
+
+async function loadModels() {
+  const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+  try {
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+    modelsLoaded = true;
+    document.getElementById('loadingScreen').style.display = 'none';
+    buildFaceMatcher(); updateStats(); renderPeople(); loadRecords(); populateSelects(); updateSyncBadge();
+    if (DB.scriptUrl) document.getElementById('scriptUrl').value = DB.scriptUrl;
+    showToast('Ready!', 'success');
+  } catch(e) {
+    document.querySelector('.loading-text').textContent = 'Error loading models. Please refresh.';
+    console.error(e);
+  }
+}
+
+function buildFaceMatcher() {
+  if (DB.people.length === 0) { faceMatcher = null; return; }
+  const labeledDescriptors = DB.people
+    .filter(p => p.descriptor)
+    .map(p => new faceapi.LabeledFaceDescriptors(p.id.toString(), [new Float32Array(p.descriptor)]));
+  faceMatcher = labeledDescriptors.length > 0 ? new faceapi.FaceMatcher(labeledDescriptors, 0.6) : null;
+}
+
+// ===================== CAMERA MANAGER =====================
+const CAMERA_MANAGER = {
+  permissionState: 'unknown',
+  devices: [],
+
+  async permissionStateNow() {
+    try {
+      if (navigator.permissions?.query) {
+        const p = await navigator.permissions.query({ name: 'camera' });
+        this.permissionState = p.state;
+        return p.state;
+      }
+    } catch (_) {}
+    return 'unknown';
+  },
+
+  async requestPermission() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new DOMException('Camera API unavailable', 'NotSupportedError');
+    }
+    const probe = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }, audio: false
+    });
+    probe.getTracks().forEach(track => track.stop());
+    this.permissionState = 'granted';
+    return true;
+  },
+
+  async enumerate() {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      this.devices = all.filter(d => d.kind === 'videoinput');
+      return this.devices;
+    } catch (_) { return []; }
+  },
+
+  async open(videoEl, preferredFacing = 'environment') {
+    if (!videoEl) throw new Error('Camera video element not found.');
+    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      throw new DOMException('Camera requires HTTPS', 'SecurityError');
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new DOMException('Live camera access is unavailable', 'NotSupportedError');
+    }
+    stopCamera();
+    await this.requestPermission();
+    const devices = await this.enumerate();
+    const rear = devices.find(d => /back|rear|environment/i.test(d.label || ''));
+    const attempts = [];
+    attempts.push({ video: { facingMode: { exact: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    if (rear?.deviceId) {
+      attempts.push({ video: { deviceId: { exact: rear.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    }
+    attempts.push(
+      { video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      { video: { facingMode: preferredFacing }, audio: false },
+      { video: true, audio: false }
+    );
+    let lastError = null;
+    for (const constraints of attempts) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        currentStream = stream;
+        videoEl.srcObject = stream;
+        videoEl.setAttribute('playsinline', '');
+        videoEl.setAttribute('autoplay', '');
+        videoEl.muted = true;
+        await new Promise(resolve => {
+          if (videoEl.readyState >= 2) resolve();
+          else videoEl.onloadedmetadata = resolve;
+        });
+        await videoEl.play();
+        await this.permissionStateNow();
+        const track = stream.getVideoTracks()[0];
+        const settings = track?.getSettings?.() || {};
+        console.info('FaceAttendance camera:', {
+          label: track?.label || 'unknown',
+          facingMode: settings.facingMode || 'unknown',
+          width: settings.width || videoEl.videoWidth,
+          height: settings.height || videoEl.videoHeight
+        });
+        hideCameraHelp();
+        return stream;
+      } catch (e) { lastError = e; }
+    }
+    throw lastError || new Error('Unable to open any available camera.');
+  }
+};
+
+function hideCameraHelp() {
+  const help = document.getElementById('cameraPermissionHelp');
+  const errBox = document.getElementById('cameraError');
+  if (help) help.classList.remove('active');
+  if (errBox) { errBox.classList.remove('active'); errBox.textContent = ''; }
+}
+
+function showCameraFailure(error) {
+  const help = document.getElementById('cameraPermissionHelp');
+  const errBox = document.getElementById('cameraError');
+  const name = error?.name || '';
+  let message = 'Unable to open the camera.';
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    message = 'Camera permission was denied or blocked. Allow Camera permission and try again.';
+  } else if (name === 'NotFoundError') {
+    message = 'No camera found. You can use the Phone Camera / Upload option.';
+  } else if (name === 'NotReadableError' || name === 'AbortError') {
+    message = 'The camera is busy. Close other camera apps and try again.';
+  } else if (name === 'OverconstrainedError') {
+    message = 'The preferred rear camera is unavailable. Trying another camera...';
+  } else if (name === 'NotSupportedError') {
+    message = 'This browser does not provide live camera access. Use the Phone Camera / Upload option.';
+  }
+  if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    message = 'Live camera requires HTTPS. Open this app from its secure HTTPS address.';
+  }
+  if (help) help.classList.add('active');
+  if (errBox) { errBox.textContent = message; errBox.classList.add('active'); }
+  console.error('Camera error:', error);
+  showToast(message, 'error');
+}
+
+async function startCamera(videoEl, preferredFacing='environment') {
+  try {
+    return await CAMERA_MANAGER.open(videoEl, preferredFacing);
+  } catch (error) {
+    showCameraFailure(error);
+    return null;
+  }
+}
+
+async function openRegistrationCamera() {
+  const video = document.getElementById('registerVideo');
+  const stream = await startCamera(video, 'environment');
+  if (!stream) return null;
+  video.style.display = 'block';
+  document.getElementById('registerPreview').style.display = 'none';
+  document.getElementById('btnOpenRegisterCamera').style.display = 'none';
+  document.getElementById('btnCapture').style.display = 'inline-flex';
+  document.getElementById('btnRetake').style.display = 'none';
+  document.getElementById('registerForm').style.display = 'none';
+  const help = document.getElementById('cameraHelp');
+  if (help) help.textContent = 'Camera is ready. Center the face and tap Take Photo.';
+  return stream;
+}
+
+async function retryCameraPermission() {
+  try {
+    await CAMERA_MANAGER.requestPermission();
+    showToast('Camera permission granted. You can now open the camera.', 'success');
+    hideCameraHelp();
+    await runMobileDiagnostics();
+  } catch (e) {
+    showCameraFailure(e);
+  }
+}
+
+// Fallback: trigger the native phone camera app via file input
+function openPhoneCameraFallback() {
+  document.getElementById('fileInput').click();
+  hideCameraHelp();
+}
+
+// Handle capture from the phone's native camera app
+async function handlePhoneCameraCapture(e) {
+  await handleFileUpload(e);
+}
+
+function stopCamera() {
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
+  }
+  const registerVideo = document.getElementById('registerVideo');
+  const attendanceVideo = document.getElementById('attendanceVideo');
+  [registerVideo, attendanceVideo].forEach(v => {
+    if (v && v.srcObject && v.srcObject !== currentStream) {
+      try { v.srcObject.getTracks?.().forEach(t => t.stop()); } catch (_) {}
+      v.srcObject = null;
+    }
+  });
+}
+
+async function capturePhoto() {
+  if (!modelsLoaded) { showToast('Models loading...', 'error'); return; }
+  const video = document.getElementById('registerVideo');
+  if (!currentStream || !video.srcObject) {
+    await openRegistrationCamera();
+    return;
+  }
+  if (!video.videoWidth || !video.videoHeight) {
+    showToast('Camera is starting. Try again in a moment.', 'error');
+    return;
+  }
+  const canvas = document.getElementById('registerCanvas');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+  if (!detection) { showToast('No face detected. Try again.', 'error'); return; }
+  capturedDescriptor = Array.from(detection.descriptor);
+  capturedImage = canvas.toDataURL('image/jpeg', 0.9);
+  document.getElementById('registerPreview').src = capturedImage;
+  document.getElementById('registerPreview').style.display = 'block';
+  video.style.display = 'none';
+  document.getElementById('btnCapture').style.display = 'none';
+  document.getElementById('btnRetake').style.display = 'inline-flex';
+  document.getElementById('registerForm').style.display = 'block';
+  showToast('Face captured! Fill details.', 'success');
+}
+
+function retakePhoto() {
+  document.getElementById('registerPreview').style.display = 'none';
+  document.getElementById('registerVideo').style.display = 'block';
+  document.getElementById('btnOpenRegisterCamera').style.display = 'none';
+  document.getElementById('btnCapture').style.display = 'inline-flex';
+  document.getElementById('btnRetake').style.display = 'none';
+  document.getElementById('registerForm').style.display = 'none';
+  document.getElementById('cameraHelp').textContent = 'Camera is ready. Center the face and tap Take Photo.';
+  capturedDescriptor = null; capturedImage = null;
+  if (!currentStream) openRegistrationCamera();
+}
+
+async function handleFileUpload(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const img = await faceapi.bufferToImage(file);
+  const canvas = document.getElementById('registerCanvas');
+  canvas.width = img.width; canvas.height = img.height;
+  canvas.getContext('2d').drawImage(img, 0, 0);
+  const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+  if (!detection) { showToast('No face in uploaded image.', 'error'); return; }
+  capturedDescriptor = Array.from(detection.descriptor);
+  capturedImage = canvas.toDataURL('image/jpeg', 0.9);
+  document.getElementById('registerPreview').src = capturedImage;
+  document.getElementById('registerPreview').style.display = 'block';
+  document.getElementById('registerVideo').style.display = 'none';
+  document.getElementById('btnOpenRegisterCamera').style.display = 'inline-flex';
+  document.getElementById('btnCapture').style.display = 'none';
+  document.getElementById('btnRetake').style.display = 'inline-flex';
+  document.getElementById('cameraHelp').textContent = 'Photo loaded. You can save this person or retake the photo.';
+  document.getElementById('registerForm').style.display = 'block';
+  showToast('Photo uploaded! Fill details.', 'success');
+}
+
+function previewAutoId() {
+  const group = document.getElementById('regGroup').value.trim();
+  document.getElementById('regId').value = group ? nextPersonId(group) : '';
+}
+
+function savePerson() {
+  const name = document.getElementById('regName').value.trim();
+  const phone = document.getElementById('regPhone').value.trim();
+  const group = document.getElementById('regGroup').value.trim();
+  const parentName = document.getElementById('regParentName').value.trim();
+  const parentPhone = document.getElementById('regParentPhone').value.trim();
+  if (!name) { showToast('Name is required', 'error'); return; }
+  if (!phone) { showToast('Phone number is required', 'error'); return; }
+  if (!group) { showToast('Group / Class is required', 'error'); return; }
+  if (!capturedDescriptor) { showToast('Capture a photo first', 'error'); return; }
+  const duplicate = DB.findDuplicatePerson(name, capturedDescriptor);
+  if (duplicate) { showToast('Duplicate detected: ' + duplicate.person.name + ' already has this face', 'error'); return; }
+  const idNum = nextPersonId(group);
+  const person = {
+    id: Date.now(), name, phone, idNum, group, parentName, parentPhone,
+    descriptor: capturedDescriptor, photo: capturedImage, createdAt: new Date().toISOString()
+  };
+  DB.addPerson(person); buildFaceMatcher();
+  document.getElementById('regName').value = '';
+  document.getElementById('regPhone').value = '';
+  document.getElementById('regId').value = '';
+  document.getElementById('regGroup').value = '';
+  document.getElementById('regParentName').value = '';
+  document.getElementById('regParentPhone').value = '';
+  retakePhoto(); updateStats(); renderPeople(); populateSelects();
+  showToast(name + ' registered as ' + idNum + '!', 'success');
+}
+
+// ===================== ATTENDANCE =====================
+async function startRecognition() {
+  if (!modelsLoaded) { showToast('Models loading...', 'error'); return; }
+  if (DB.people.length === 0) { showToast('No registered people', 'error'); return; }
+  if (!faceMatcher) { showToast('Register people with photos first', 'error'); return; }
+  const video = document.getElementById('attendanceVideo');
+  const stream = await startCamera(video, 'environment');
+  if (!stream) {
+    document.getElementById('btnStartRec').style.display = 'inline-flex';
+    document.getElementById('btnStopRec').style.display = 'none';
+    return;
+  }
+  document.getElementById('btnStartRec').style.display = 'none';
+  document.getElementById('btnStopRec').style.display = 'inline-flex';
+  const displaySize = { width: video.videoWidth || 640, height: video.videoHeight || 480 };
+  faceapi.matchDimensions(document.getElementById('attendanceOverlay'), displaySize);
+  recognitionInterval = setInterval(async () => {
+    if (video.paused || video.ended || pendingUnknown) return;
+    const detections = await faceapi.detectAllFaces(
+      video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })
+    ).withFaceLandmarks().withFaceDescriptors();
+    const displaySize = { width: video.videoWidth || 640, height: video.videoHeight || 480 };
+    const overlay = document.getElementById('attendanceOverlay');
+    faceapi.matchDimensions(overlay, displaySize);
+    const resized = faceapi.resizeResults(detections, displaySize);
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    let recognizedCount = 0;
+    let unknownFound = null;
+    resized.forEach(detection => {
+      const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+      const box = detection.detection.box;
+      const isKnown = bestMatch.label !== 'unknown';
+      const person = isKnown ? DB.people.find(p => p.id.toString() === bestMatch.label) : null;
+      ctx.strokeStyle = isKnown ? '#22c55e' : '#f59e0b'; ctx.lineWidth = 3;
+      ctx.strokeRect(box.x, box.y, box.width, box.height);
+      const label = person ? person.name : 'UNKNOWN';
+      ctx.font = 'bold 14px sans-serif';
+      const tw = ctx.measureText(label).width + 20;
+      ctx.fillStyle = isKnown ? '#22c55e' : '#f59e0b';
+      ctx.fillRect(box.x, Math.max(0, box.y - 25), tw, 25);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, box.x + 10, Math.max(18, box.y - 7));
+      if (isKnown && person) {
+        recognizedCount++;
+        if (DB.markAttendance(person.id, DB.getToday(), 'face')) {
+          showToast(person.name + ' marked present!', 'success');
+          loadTodayAttendance(); updateStats(); loadRecords();
+        }
+      } else if (!unknownFound) {
+        unknownFound = detection;
+      }
+    });
+    document.getElementById('recStatus').textContent =
+      unknownFound ? '⚠️ Unknown person detected' :
+      recognizedCount > 0 ? recognizedCount + ' face(s) recognized' : 'Scanning...';
+    if (unknownFound) {
+      const frame = captureCanvasFrame(video);
+      openUnknownPanel(unknownFound.descriptor, frame);
+    }
+  }, 1000);
+}
+
+function stopRecognition() {
+  if (recognitionInterval) { clearInterval(recognitionInterval); recognitionInterval = null; }
+  stopCamera();
+  const ctx = document.getElementById('attendanceOverlay').getContext('2d');
+  ctx.clearRect(0, 0, attendanceOverlay.width, attendanceOverlay.height);
+  document.getElementById('btnStartRec').style.display = 'inline-flex';
+  document.getElementById('btnStopRec').style.display = 'none';
+  document.getElementById('recStatus').textContent = 'Scanning...';
+}
+
+function manualCheckIn() {
+  const personId = document.getElementById('manualPerson').value;
+  const date = document.getElementById('manualDate').value || DB.getToday();
+  if (!personId) { showToast('Select a person', 'error'); return; }
+  if (DB.markAttendance(parseInt(personId), date, 'manual')) {
+    showToast('Attendance marked!', 'success'); loadTodayAttendance(); updateStats();
+  } else { showToast('Already marked for this date', 'error'); }
+}
+
+function loadTodayAttendance() {
+  const today = DB.getToday();
+  const records = DB.getAttendanceForDate(today);
+  const container = document.getElementById('todayAttendanceList');
+  const registeredEl = document.getElementById('scanRegistered');
+  const presentEl = document.getElementById('scanPresent');
+  const absentEl = document.getElementById('scanAbsent');
+  if (registeredEl) registeredEl.textContent = DB.people.length;
+  if (presentEl) presentEl.textContent = records.length;
+  if (absentEl) absentEl.textContent = Math.max(0, DB.people.length - records.length);
+  if (records.length === 0) { container.innerHTML = '<div class="empty-state"><p>No attendance today</p></div>'; return; }
+  container.innerHTML = records.map(r => {
+    const p = DB.people.find(x => x.id === r.personId); if (!p) return '';
+    return '<div class="attendance-row present"><img src="' + (p.photo||'') + '" class="person-avatar" style="width:40px;height:40px;" onerror="this.style.display=\'none\'"><div style="flex:1"><div class="person-name">' + p.name + '</div><div class="person-meta">' + p.phone + ' &bull; ' + r.time + ' &bull; ' + (r.method==='face'?'Auto':'Manual') + '</div></div><span class="status-badge present">Present</span></div>';
+  }).join('');
+}
+
+// ===================== RECORDS =====================
+function loadRecords() {
+  const date = document.getElementById('filterDate').value || DB.getToday();
+  const group = document.getElementById('filterGroup').value;
+  document.getElementById('filterDate').value = date;
+  const records = DB.getAttendanceForDate(date);
+  const container = document.getElementById('recordsList');
+  let peopleToShow = DB.people;
+  if (group) peopleToShow = peopleToShow.filter(p => p.group === group);
+  if (peopleToShow.length === 0) { container.innerHTML = '<div class="empty-state"><p>No people in this group</p></div>'; return; }
+  container.innerHTML = peopleToShow.map(person => {
+    const isPresent = records.some(r => r.personId === person.id);
+    return '<div class="attendance-row ' + (isPresent?'present':'absent') + '"><img src="' + (person.photo||'') + '" class="person-avatar" style="width:40px;height:40px;" onerror="this.style.display=\'none\'"><div style="flex:1"><div class="person-name">' + person.name + '</div><div class="person-meta">' + person.phone + ' &bull; ' + (person.idNum||'No ID') + ' &bull; ' + person.group + '</div></div><span class="status-badge ' + (isPresent?'present':'absent') + '">' + (isPresent?'Present':'Absent') + '</span>' + (!isPresent?'<button class="icon-btn check" onclick="quickMark(' + person.id + ',\'' + date + '\')">&#10003;</button>':'') + (isPresent?'<button class="icon-btn delete" onclick="quickUnmark(' + person.id + ',\'' + date + '\')">&#10005;</button>':'') + '</div>';
+  }).join('');
+}
+function setToday() { document.getElementById('filterDate').value = DB.getToday(); loadRecords(); }
+function quickMark(personId, date) { DB.markAttendance(personId, date, 'manual'); loadRecords(); updateStats(); showToast('Marked present', 'success'); }
+function quickUnmark(personId, date) { DB.removeAttendance(personId, date); loadRecords(); updateStats(); showToast('Attendance removed', 'success'); }
+
+// ===================== PEOPLE =====================
+function renderPeople() {
+  const search = document.getElementById('searchPeople').value.toLowerCase();
+  const container = document.getElementById('peopleList');
+  let filtered = DB.people;
+  if (search) filtered = filtered.filter(p => p.name.toLowerCase().includes(search) || (p.phone||'').includes(search));
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h3>No people found</h3><p>Register someone to get started</p></div>';
+    return;
+  }
+  container.innerHTML = filtered.map(person =>
+    '<div class="person-card"><img src="' + (person.photo||'') + '" class="person-avatar" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#128100;</text></svg>\'"><div class="person-info"><div class="person-name">' + person.name + '</div><div class="person-meta">&#128222; ' + person.phone + ' &bull; ' + (person.idNum||'No ID') + ' &bull; ' + person.group + '</div></div><div class="person-actions"><button class="icon-btn edit" onclick="openEditModal(' + person.id + ')">&#9999;&#65039;</button><button class="icon-btn delete" onclick="deletePerson(' + person.id + ')">&#128465;&#65039;</button></div></div>'
+  ).join('');
+}
+function openEditModal(id) {
+  const p = DB.people.find(x => x.id === id); if (!p) return;
+  document.getElementById('editPersonId').value = id;
+  document.getElementById('editName').value = p.name;
+  document.getElementById('editPhone').value = p.phone || '';
+  document.getElementById('editId').value = p.idNum;
+  document.getElementById('editGroup').value = p.group;
+  document.getElementById('editParentName').value = p.parentName || '';
+  document.getElementById('editParentPhone').value = p.parentPhone || '';
+  document.getElementById('editModal').classList.add('active');
+}
+function closeModal() { document.getElementById('editModal').classList.remove('active'); }
+function updatePerson() {
+  const id = parseInt(document.getElementById('editPersonId').value);
+  const name = document.getElementById('editName').value.trim();
+  const phone = document.getElementById('editPhone').value.trim();
+  const idNum = document.getElementById('editId').value.trim();
+  const group = document.getElementById('editGroup').value.trim();
+  const parentName = document.getElementById('editParentName').value.trim();
+  const parentPhone = document.getElementById('editParentPhone').value.trim();
+  if (!name) { showToast('Name required', 'error'); return; }
+  if (!phone) { showToast('Phone required', 'error'); return; }
+  DB.updatePerson(id, { name, phone, idNum, group, parentName, parentPhone });
+  renderPeople(); populateSelects(); loadRecords(); closeModal(); showToast('Updated!', 'success');
+}
+function deletePerson(id) {
+  if (!confirm('Delete this person and all their attendance records?')) return;
+  DB.deletePerson(id); buildFaceMatcher(); renderPeople(); updateStats(); populateSelects(); loadRecords(); showToast('Deleted', 'success');
+}
+
+// ===================== EXPORT =====================
+function exportCSV() {
+  const date = document.getElementById('filterDate').value || DB.getToday();
+  const records = DB.getAttendanceForDate(date);
+  let csv = 'Name,Phone,ID,Group,Parent/Guardian,Parent Phone,Status,Time,Method\n';
+  DB.people.forEach(p => {
+    const r = records.find(x => x.personId === p.id);
+    csv += '"' + p.name + '","' + (p.phone||'') + '","' + (p.idNum||'') + '","' + p.group + '","' + (p.parentName||'') + '","' + (p.parentPhone||'') + '",' + (r?'Present':'Absent') + ',' + (r?r.time:'') + ',' + (r?r.method:'') + '\n';
+  });
+  downloadFile(csv, 'attendance_' + date + '.csv', 'text/csv'); showToast('CSV exported!', 'success');
+}
+function exportJSON() {
+  const data = { exportedAt: new Date().toISOString(), people: DB.people.map(p => ({...p, descriptor: undefined})), attendance: DB.attendance };
+  downloadFile(JSON.stringify(data, null, 2), 'attendance_export_' + DB.getToday() + '.json', 'application/json'); showToast('JSON exported!', 'success');
+}
+function downloadFile(content, filename, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
+
+// ===================== MOBILE DIAGNOSTICS =====================
+async function runMobileDiagnostics() {
+  const el = document.getElementById('mobileDiagnostic');
+  if (!el) return;
+  const rows = [];
+  rows.push('Browser: ' + (navigator.userAgent.includes('Chrome') ? 'Chrome' : navigator.userAgent.includes('Safari') ? 'Safari' : 'Other'));
+  rows.push('HTTPS / secure context: ' + (window.isSecureContext ? 'YES' : 'NO'));
+  rows.push('Camera API: ' + (navigator.mediaDevices?.getUserMedia ? 'Available' : 'Not available'));
+  if (navigator.mediaDevices?.enumerateDevices) {
+    try {
+      const cameras = await CAMERA_MANAGER.enumerate();
+      rows.push('Cameras detected: ' + cameras.length);
+      const rear = cameras.find(d => /back|rear|environment/i.test(d.label || ''));
+      rows.push('Rear camera: ' + (rear ? 'Detected' : cameras.length ? 'Available but label hidden until permission' : 'Not detected'));
+    } catch (_) {
+      rows.push('Camera list: Browser did not expose devices');
+    }
+  }
+  if (navigator.permissions?.query) {
+    try {
+      const p = await navigator.permissions.query({ name: 'camera' });
+      rows.push('Camera permission: ' + (p.state === 'granted' ? 'Allowed' : p.state === 'prompt' ? 'Ask when camera opens' : 'Blocked'));
+    } catch (_) {
+      rows.push('Camera permission: Browser did not expose permission state');
+    }
+  }
+  rows.push('Face models: ' + (modelsLoaded ? 'Loaded' : 'Not loaded'));
+  rows.push('Registered faces: ' + DB.people.length);
+  rows.push('Google Apps Script URL: ' + (DB.scriptUrl ? 'Saved' : 'Not configured'));
+  if (DB.scriptUrl) {
+    try {
+      const r = await fetch(DB.scriptUrl + '?action=load&check=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      rows.push('Google API: ' + (d.error ? 'Error: ' + d.error : 'Connected'));
+    } catch (e) {
+      rows.push('Google API: Error: ' + e.message);
+    }
+  }
+  el.innerHTML = rows.map(x => '<div>' + x + '</div>').join('');
+}
+
+// ===================== UI =====================
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('section-' + id).classList.add('active');
+  if (event && event.target) event.target.classList.add('active');
+  if (id === 'attendance') { loadTodayAttendance(); document.getElementById('manualDate').value = DB.getToday(); }
+  if (id === 'records') { document.getElementById('filterDate').value = DB.getToday(); loadRecords(); }
+  if (id === 'cloud' && DB.scriptUrl) document.getElementById('scriptUrl').value = DB.scriptUrl;
+}
+function updateStats() {
+  const today = DB.getToday();
+  const todayCount = DB.getAttendanceForDate(today).length;
+  const total = DB.people.length;
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statToday').textContent = todayCount;
+  document.getElementById('statRate').textContent = total > 0 ? Math.round((todayCount / total) * 100) + '%' : '0%';
+}
+function populateSelects() {
+  const personSelect = document.getElementById('manualPerson');
+  const groupSelect = document.getElementById('filterGroup');
+  personSelect.innerHTML = '<option value="">-- Choose person --</option>' + DB.people.map(p => '<option value="' + p.id + '">' + p.name + ' (' + p.phone + ')</option>').join('');
+  const groups = [...new Set(DB.people.map(p => p.group).filter(g => g))];
+  groupSelect.innerHTML = '<option value="">All Groups</option>' + groups.map(g => '<option value="' + g + '">' + g + '</option>').join('');
+}
+function showToast(msg, type='') {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg; toast.className = 'toast ' + type;
+  setTimeout(() => toast.classList.add('show'), 10);
+  setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+// ===================== INIT =====================
+window.addEventListener('load', () => {
+  loadModels();
+  const video = document.getElementById('registerVideo');
+  if (video) video.style.display = 'block';
+  document.getElementById('manualDate').value = DB.getToday();
+  document.getElementById('filterDate').value = DB.getToday();
+
+  // Show HTTPS warning if not on secure context
+  if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    document.getElementById('httpsBanner').classList.add('active');
+  }
+
+  // Run diagnostics after a short delay
+  setTimeout(runMobileDiagnostics, 1000);
+});
+
+window.addEventListener('beforeunload', () => { stopCamera(); stopRecognition(); });
+</script>
+</body>
+</html>
