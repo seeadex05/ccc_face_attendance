@@ -30,6 +30,7 @@
   .card-title { font-size:1rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
   .camera-container { position:relative; width:100%; border-radius:16px; overflow:hidden; background:#000; aspect-ratio:4/3; }
   .camera-container video, .camera-container canvas, .camera-container img { width:100%; height:100%; object-fit:cover; display:block; }
+  .camera-overlay { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; pointer-events:none; }
   .rec-status { position:absolute; top:12px; left:12px; background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); padding:6px 12px; border-radius:20px; font-size:0.75rem; color:white; font-weight:600; display:flex; align-items:center; gap:6px; }
   .rec-status::before { content:''; width:8px; height:8px; border-radius:50%; background:var(--success); animation:pulse 1.5s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
@@ -79,6 +80,7 @@
   .empty-state h3 { font-size:1.1rem; margin-bottom:8px; color:var(--text); }
   input[type="file"] { display:none; }
   .two-col { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
   .unknown-panel{position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);display:none;align-items:flex-end;justify-content:center;z-index:450;padding:16px}
   .unknown-panel.active{display:flex}
   .unknown-card{width:100%;max-width:480px;background:var(--surface);border:1px solid var(--border);border-radius:24px 24px 0 0;padding:22px;animation:slideUp .25s ease}
@@ -89,23 +91,21 @@
   .scan-chip{padding:10px 6px;border-radius:12px;background:var(--bg);text-align:center;border:1px solid var(--border)}
   .scan-chip strong{display:block;font-size:1.15rem;color:var(--primary)}
   .scan-chip span{font-size:.68rem;color:var(--text-muted)}
-  .camera-help{display:none;margin:12px 0;padding:14px;border:1px solid var(--warning);border-radius:14px;background:rgba(245,158,11,.10);font-size:.82rem;line-height:1.45}
+
+
+  .camera-help{display:none;margin:12px 0;padding:14px;border:1px solid var(--warning,#f59e0b);border-radius:14px;background:rgba(245,158,11,.10);font-size:.82rem;line-height:1.45}
   .camera-help.active{display:block}
   .camera-help strong{display:block;margin-bottom:6px}
   .camera-help ol{margin:8px 0 0 20px;padding:0}
   .camera-help button{margin-top:10px}
   .camera-error{display:none;margin:10px 0;padding:10px;border-radius:10px;background:rgba(239,68,68,.10);color:#ef4444;font-size:.78rem}
   .camera-error.active{display:block}
-  .https-banner { display:none; background:var(--danger); color:white; padding:12px 16px; font-size:0.85rem; font-weight:600; text-align:center; }
-  .https-banner.active { display:block; }
+
 </style>
+<base target="_blank">
 </head>
 <body>
 <div class="app">
-  <div class="https-banner" id="httpsBanner">
-    ⚠️ Camera requires HTTPS. Upload this file to a free host like Netlify Drop or GitHub Pages, then open that link on your phone.
-  </div>
-
   <div class="loading-screen" id="loadingScreen">
     <div class="spinner"></div>
     <div class="loading-text">Loading Face Recognition Models...</div>
@@ -153,19 +153,6 @@
       <div id="cameraHelp" style="font-size:.72rem;color:var(--text-muted);margin-top:8px;">
         On mobile, tap <b>Open Rear Camera</b>. If your browser cannot open the live camera, use <b>Use Phone Camera / Upload</b>.
       </div>
-      <div class="camera-help" id="cameraPermissionHelp">
-        <strong>📷 Camera permission is required</strong>
-        <div id="cameraHelpText">Allow camera access for this site. If you previously selected "Block", open your browser's site permissions and change Camera to "Allow", then reload this page.</div>
-        <ol id="cameraAndroidSteps">
-          <li>Tap the browser's 🔒 / site settings icon beside the address.</li>
-          <li>Open <b>Permissions</b> or <b>Site settings</b>.</li>
-          <li>Set <b>Camera → Allow</b>.</li>
-          <li>Reload FaceAttendance Pro and tap <b>Open Rear Camera</b> again.</li>
-        </ol>
-        <button type="button" class="btn btn-primary" onclick="retryCameraPermission()">🔐 Allow Camera / Try Again</button>
-        <button type="button" class="btn btn-outline" onclick="openPhoneCameraFallback()">📱 Use Phone Camera Instead</button>
-      </div>
-      <div class="camera-error" id="cameraError"></div>
     </div>
     <div class="card" id="registerForm" style="display:none;">
       <div class="card-title">👤 Person Details</div>
@@ -240,11 +227,13 @@
     </div>
   </div>
 
-  <!-- CLOUD -->
+  <!-- CLOUD / SETTINGS -->
   <div class="section" id="section-cloud">
     <div class="card">
       <div class="card-title">☁️ Google Sheets Sync</div>
-      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">Connect to your Google Sheet to backup and sync attendance data across devices.</p>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+        Connect to your Google Sheet to backup and sync attendance data across devices.
+      </p>
       <div class="input-group">
         <label>Google Apps Script Web App URL</label>
         <input type="url" id="scriptUrl" placeholder="https://script.google.com/macros/s/.../exec">
@@ -254,11 +243,15 @@
       <button class="btn btn-info" onclick="syncFromGoogle()">⬇️ Pull from Google Sheet</button>
       <button class="btn btn-outline" onclick="clearLocalData()">🗑️ Clear Local Data</button>
     </div>
+
     <div class="card">
-      <div class="card-title">📱 Mobile Camera &amp; API Check</div>
-      <div id="mobileDiagnostic" style="font-size:.82rem;line-height:1.55;color:var(--text-muted);">Checking browser, HTTPS, camera permission and Google API connection...</div>
+      <div class="card-title">📱 Mobile Camera & API Check</div>
+      <div id="mobileDiagnostic" style="font-size:.82rem;line-height:1.55;color:var(--text-muted);">
+        Checking browser, HTTPS, camera permission and Google API connection...
+      </div>
       <button class="btn btn-outline" onclick="runMobileDiagnostics()">🔎 Run Check Again</button>
     </div>
+
     <div class="card">
       <div class="card-title">📖 Setup Instructions</div>
       <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.6;">
@@ -274,7 +267,8 @@
     </div>
   </div>
 
-  <!-- UNKNOWN PERSON -->
+
+  <!-- UNKNOWN PERSON REGISTRATION -->
   <div class="unknown-panel" id="unknownPanel">
     <div class="unknown-card">
       <img id="unknownPhoto" class="unknown-photo" alt="Unknown person">
@@ -295,6 +289,21 @@
     </div>
   </div>
 
+
+  <div class="camera-help" id="cameraPermissionHelp">
+    <strong>📷 Camera permission is required</strong>
+    <div id="cameraHelpText">Allow camera access for this site. If you previously selected “Block”, open your browser's site permissions and change Camera to “Allow”, then reload this page.</div>
+    <ol id="cameraAndroidSteps">
+      <li>Tap the browser's 🔒 / site settings icon beside the address.</li>
+      <li>Open <b>Permissions</b> or <b>Site settings</b>.</li>
+      <li>Set <b>Camera → Allow</b>.</li>
+      <li>Reload FaceAttendance Pro and tap <b>Open Rear Camera</b> again.</li>
+    </ol>
+    <button type="button" class="btn btn-primary" onclick="retryCameraPermission()">🔐 Allow Camera / Try Again</button>
+    <button type="button" class="btn btn-outline" onclick="openPhoneCameraFallback()">📱 Use Phone Camera Instead</button>
+  </div>
+  <div class="camera-error" id="cameraError"></div>
+
   <!-- EDIT MODAL -->
   <div class="modal-overlay" id="editModal">
     <div class="modal">
@@ -305,8 +314,8 @@
         <div class="input-group"><label>ID / Roll Number</label><input type="text" id="editId"></div>
       </div>
       <div class="input-group"><label>Group / Class</label><input type="text" id="editGroup"></div>
-      <div class="input-group"><label>Parent / Guardian Name</label><input type="text" id="editParentName"></div>
-      <div class="input-group"><label>Parent / Guardian Phone</label><input type="tel" id="editParentPhone"></div>
+    <div class="input-group"><label>Parent / Guardian Name</label><input type="text" id="editParentName"></div>
+    <div class="input-group"><label>Parent / Guardian Phone</label><input type="tel" id="editParentPhone"></div>
       <input type="hidden" id="editPersonId">
       <button class="btn btn-success" onclick="updatePerson()">💾 Save Changes</button>
     </div>
@@ -366,6 +375,7 @@ const DB = {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   },
+
   importAll(data) {
     if (data.people) { this.people = data.people; this.savePeople(); }
     if (data.attendance) { this.attendance = data.attendance; this.saveAttendance(); }
@@ -377,11 +387,11 @@ const DB = {
 function updateSyncBadge() {
   const el = document.getElementById('syncBadge');
   if (DB.scriptUrl && !DB.pendingSync) {
-    el.className = 'sync-badge synced'; el.textContent = 'Synced to Google';
+    el.className = 'sync-badge synced'; el.textContent = '✅ Synced to Google';
   } else if (DB.scriptUrl && DB.pendingSync) {
-    el.className = 'sync-badge pending'; el.textContent = 'Sync Pending';
+    el.className = 'sync-badge pending'; el.textContent = '⏳ Sync Pending';
   } else {
-    el.className = 'sync-badge pending'; el.textContent = 'Local Only';
+    el.className = 'sync-badge pending'; el.textContent = '⏳ Local Only';
   }
 }
 
@@ -405,7 +415,7 @@ async function syncToGoogle() {
     try { result = JSON.parse(text); } catch (_) { result = null; }
     if (result && result.success === true) {
       DB.setPending(false);
-      showToast('Data synced to Google Sheet!', 'success');
+      showToast('✅ Data synced to Google Sheet!', 'success');
     } else {
       showToast('Sync response: ' + text, 'error');
     }
@@ -428,7 +438,7 @@ async function syncFromGoogle() {
       });
     }
     DB.importAll(data);
-    showToast('Data restored from Google Sheet!', 'success');
+    showToast('✅ Data restored from Google Sheet!', 'success');
   } catch(e) { showToast('Pull failed: ' + e.message, 'error'); }
 }
 
@@ -455,20 +465,26 @@ let capturedDescriptor = null, capturedImage = null;
 const FACE_DUPLICATE_THRESHOLD = 0.60;
 let pendingUnknown = null;
 
+
 function normalizeGroupCode(group) {
   const raw = String(group || 'General').trim().toUpperCase();
-  const code = raw.replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 12);
+  const code = raw
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 12);
   return code || 'GENERAL';
 }
 
 function nextPersonId(group) {
   const code = normalizeGroupCode(group);
   let max = 0;
+
   DB.people.forEach(p => {
     const id = String(p.idNum || '').toUpperCase();
-    const match = id.match(new RegExp('^' + code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(\d+)$'));
+    const match = id.match(new RegExp('^' + code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(\\d+)$'));
     if (match) max = Math.max(max, parseInt(match[1], 10) || 0);
   });
+
   return `${code}-${String(max + 1).padStart(3, '0')}`;
 }
 
@@ -520,24 +536,52 @@ function previewUnknownAutoId() {
 
 function registerUnknownPerson() {
   if (!pendingUnknown) return;
+
   const name = document.getElementById('unknownName').value.trim();
   const phone = document.getElementById('unknownPhone').value.trim();
   const group = document.getElementById('unknownGroup').value.trim();
   const parentName = document.getElementById('unknownParentName').value.trim();
   const parentPhone = document.getElementById('unknownParentPhone').value.trim();
-  if (!name || !phone || !group) { showToast('Name, phone and group/class are required', 'error'); return; }
+
+  if (!name || !phone || !group) {
+    showToast('Name, phone and group/class are required', 'error');
+    return;
+  }
+
   const duplicate = DB.findDuplicatePerson(name, pendingUnknown.descriptor);
-  if (duplicate) { showToast('This name + face is already registered', 'error'); return; }
+  if (duplicate) {
+    showToast('This name + face is already registered', 'error');
+    return;
+  }
+
   const idNum = nextPersonId(group);
   const person = {
-    id: Date.now(), name, phone, idNum, group, parentName, parentPhone,
-    descriptor: pendingUnknown.descriptor, photo: pendingUnknown.photo, createdAt: new Date().toISOString()
+    id: Date.now(),
+    name,
+    phone,
+    idNum,
+    group,
+    parentName,
+    parentPhone,
+    descriptor: pendingUnknown.descriptor,
+    photo: pendingUnknown.photo,
+    createdAt: new Date().toISOString()
   };
-  DB.addPerson(person); buildFaceMatcher(); populateSelects(); renderPeople(); updateStats();
-  if (DB.markAttendance(person.id, DB.getToday(), 'face')) { loadTodayAttendance(); }
+
+  DB.addPerson(person);
+  buildFaceMatcher();
+  populateSelects();
+  renderPeople();
+  updateStats();
+
+  if (DB.markAttendance(person.id, DB.getToday(), 'face')) {
+    loadTodayAttendance();
+  }
+
   closeUnknownPanel();
-  showToast(`${name} registered as ${idNum} and marked present!`, 'success');
+  showToast(`✅ ${name} registered as ${idNum} and marked present!`, 'success');
 }
+
 
 async function loadModels() {
   const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
@@ -564,7 +608,9 @@ function buildFaceMatcher() {
   faceMatcher = labeledDescriptors.length > 0 ? new faceapi.FaceMatcher(labeledDescriptors, 0.6) : null;
 }
 
-// ===================== CAMERA MANAGER =====================
+// ===================== CAMERA =====================
+// Device-independent camera manager.
+// Never assumes camera ID 0/1 or a particular phone manufacturer.
 const CAMERA_MANAGER = {
   permissionState: 'unknown',
   devices: [],
@@ -584,9 +630,14 @@ const CAMERA_MANAGER = {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new DOMException('Camera API unavailable', 'NotSupportedError');
     }
+
+    // This call is intentionally made without a camera ID. Android/browser
+    // chooses the device and shows its native permission prompt when required.
     const probe = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } }, audio: false
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false
     });
+
     probe.getTracks().forEach(track => track.stop());
     this.permissionState = 'granted';
     return true;
@@ -598,91 +649,188 @@ const CAMERA_MANAGER = {
       const all = await navigator.mediaDevices.enumerateDevices();
       this.devices = all.filter(d => d.kind === 'videoinput');
       return this.devices;
-    } catch (_) { return []; }
+    } catch (_) {
+      return [];
+    }
   },
 
   async open(videoEl, preferredFacing = 'environment') {
     if (!videoEl) throw new Error('Camera video element not found.');
-    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+
+    const localHost =
+      location.hostname === 'localhost' ||
+      location.hostname === '127.0.0.1' ||
+      location.hostname === '::1';
+
+    if (!window.isSecureContext && !localHost) {
       throw new DOMException('Camera requires HTTPS', 'SecurityError');
     }
+
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new DOMException('Live camera access is unavailable', 'NotSupportedError');
     }
+
     stopCamera();
+
+    // First permission request. Do not select a manufacturer-specific camera ID.
     await this.requestPermission();
+
+    // Labels/device IDs become available after permission on most browsers.
     const devices = await this.enumerate();
     const rear = devices.find(d => /back|rear|environment/i.test(d.label || ''));
+
     const attempts = [];
-    attempts.push({ video: { facingMode: { exact: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+
+    // Prefer rear camera by semantic facing mode.
+    attempts.push({
+      video: {
+        facingMode: { exact: preferredFacing },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+
+    // If enumeration exposed a rear camera, use its runtime-generated ID.
     if (rear?.deviceId) {
-      attempts.push({ video: { deviceId: { exact: rear.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      attempts.push({
+        video: {
+          deviceId: { exact: rear.deviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
     }
+
+    // Relax constraints for devices that do not expose facingMode correctly.
     attempts.push(
       { video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
       { video: { facingMode: preferredFacing }, audio: false },
       { video: true, audio: false }
     );
+
     let lastError = null;
+
     for (const constraints of attempts) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         currentStream = stream;
+
         videoEl.srcObject = stream;
         videoEl.setAttribute('playsinline', '');
         videoEl.setAttribute('autoplay', '');
         videoEl.muted = true;
+
         await new Promise(resolve => {
           if (videoEl.readyState >= 2) resolve();
           else videoEl.onloadedmetadata = resolve;
         });
+
         await videoEl.play();
+        await waitForVideoReady(videoEl, 8000);
         await this.permissionStateNow();
+
         const track = stream.getVideoTracks()[0];
         const settings = track?.getSettings?.() || {};
-        console.info('FaceAttendance camera:', {
+        console.info('FaceAttendance camera selected:', {
           label: track?.label || 'unknown',
           facingMode: settings.facingMode || 'unknown',
           width: settings.width || videoEl.videoWidth,
           height: settings.height || videoEl.videoHeight
         });
+
         hideCameraHelp();
         return stream;
-      } catch (e) { lastError = e; }
+      } catch (e) {
+        lastError = e;
+      }
     }
+
     throw lastError || new Error('Unable to open any available camera.');
   }
 };
+
+
+async function waitForVideoReady(video, timeoutMs = 8000) {
+  if (!video) throw new Error('Camera video element not found.');
+  if (video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= 2) return true;
+
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const cleanup = () => {
+      video.removeEventListener('loadedmetadata', ready);
+      video.removeEventListener('canplay', ready);
+      video.removeEventListener('playing', ready);
+      clearTimeout(timer);
+    };
+    const finish = (ok, err) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      err ? reject(err) : resolve(ok);
+    };
+    const ready = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) finish(true);
+    };
+    const timer = setTimeout(
+      () => finish(false, new Error('Camera preview did not become ready in time.')),
+      timeoutMs
+    );
+    video.addEventListener('loadedmetadata', ready);
+    video.addEventListener('canplay', ready);
+    video.addEventListener('playing', ready);
+    ready();
+  });
+}
 
 function hideCameraHelp() {
   const help = document.getElementById('cameraPermissionHelp');
   const errBox = document.getElementById('cameraError');
   if (help) help.classList.remove('active');
-  if (errBox) { errBox.classList.remove('active'); errBox.textContent = ''; }
+  if (errBox) {
+    errBox.classList.remove('active');
+    errBox.textContent = '';
+  }
 }
 
 function showCameraFailure(error) {
   const help = document.getElementById('cameraPermissionHelp');
   const errBox = document.getElementById('cameraError');
   const name = error?.name || '';
+
   let message = 'Unable to open the camera.';
+
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    message = 'Camera permission was denied or blocked. Allow Camera permission and try again.';
+    const ua = navigator.userAgent || '';
+    const ios = /iPhone|iPad|iPod/i.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    message = ios
+      ? 'Camera access was denied or blocked on iOS. Allow Camera for this website in Safari Settings, return here, and tap Try Again.'
+      : 'Camera permission was denied or blocked. Allow Camera permission for FaceAttendance Pro and try again.';
   } else if (name === 'NotFoundError') {
-    message = 'No camera found. You can use the Phone Camera / Upload option.';
+    message = 'No camera was found on this device. You can use the Phone Camera / Upload option.';
   } else if (name === 'NotReadableError' || name === 'AbortError') {
-    message = 'The camera is busy. Close other camera apps and try again.';
+    message = 'The camera is busy or unavailable. Close other camera apps and try again.';
   } else if (name === 'OverconstrainedError') {
-    message = 'The preferred rear camera is unavailable. Trying another camera...';
+    message = 'The preferred rear camera is unavailable. The app will try another available camera.';
   } else if (name === 'NotSupportedError') {
-    message = 'This browser does not provide live camera access. Use the Phone Camera / Upload option.';
+    message = 'This browser/WebView does not provide live camera access. Use the Phone Camera / Upload option.';
   }
-  if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-    message = 'Live camera requires HTTPS. Open this app from its secure HTTPS address.';
+
+  if (!window.isSecureContext &&
+      location.hostname !== 'localhost' &&
+      location.hostname !== '127.0.0.1') {
+    message = 'Live camera requires HTTPS. Open FaceAttendance Pro from its secure HTTPS address.';
   }
+
   if (help) help.classList.add('active');
-  if (errBox) { errBox.textContent = message; errBox.classList.add('active'); }
-  console.error('Camera error:', error);
+  if (errBox) {
+    errBox.textContent = message;
+    errBox.classList.add('active');
+  }
+
+  console.error('FaceAttendance camera error:', error);
   showToast(message, 'error');
 }
 
@@ -695,70 +843,105 @@ async function startCamera(videoEl, preferredFacing='environment') {
   }
 }
 
-async function openRegistrationCamera() {
+// The Register button was calling this function, but the previous file did not
+// actually define it. Keep registration and attendance on the same camera manager.
+window.openRegistrationCamera = async function() {
   const video = document.getElementById('registerVideo');
   const stream = await startCamera(video, 'environment');
+
   if (!stream) return null;
+
+  try {
+    await waitForVideoReady(video, 8000);
+  } catch (e) {
+    showCameraFailure(e);
+    await stopCamera();
+    return null;
+  }
+
   video.style.display = 'block';
   document.getElementById('registerPreview').style.display = 'none';
   document.getElementById('btnOpenRegisterCamera').style.display = 'none';
   document.getElementById('btnCapture').style.display = 'inline-flex';
   document.getElementById('btnRetake').style.display = 'none';
   document.getElementById('registerForm').style.display = 'none';
+
   const help = document.getElementById('cameraHelp');
   if (help) help.textContent = 'Camera is ready. Center the face and tap Take Photo.';
+
   return stream;
-}
+};
 
-async function retryCameraPermission() {
+async function requestCameraPermissionOnAppStart() {
+  // Do not crash the app if the browser refuses permission outside a user gesture.
+  // The same request is retried automatically when Register/Scan is opened.
   try {
-    await CAMERA_MANAGER.requestPermission();
-    showToast('Camera permission granted. You can now open the camera.', 'success');
-    hideCameraHelp();
-    await runMobileDiagnostics();
-  } catch (e) {
-    showCameraFailure(e);
-  }
-}
+    const state = await CAMERA_MANAGER.permissionStateNow();
 
-// Fallback: trigger the native phone camera app via file input
-function openPhoneCameraFallback() {
-  document.getElementById('fileInput').click();
-  hideCameraHelp();
-}
+    if (state === 'granted') return;
 
-// Handle capture from the phone's native camera app
-async function handlePhoneCameraCapture(e) {
-  await handleFileUpload(e);
-}
-
-function stopCamera() {
-  if (currentStream) {
-    currentStream.getTracks().forEach(t => t.stop());
-    currentStream = null;
-  }
-  const registerVideo = document.getElementById('registerVideo');
-  const attendanceVideo = document.getElementById('attendanceVideo');
-  [registerVideo, attendanceVideo].forEach(v => {
-    if (v && v.srcObject && v.srcObject !== currentStream) {
-      try { v.srcObject.getTracks?.().forEach(t => t.stop()); } catch (_) {}
-      v.srcObject = null;
+    if (state === 'prompt' && navigator.mediaDevices?.getUserMedia) {
+      try {
+        await CAMERA_MANAGER.requestPermission();
+      } catch (e) {
+        console.info('Camera permission will be requested from the camera action:', e.name);
+      }
+    } else if (state === 'denied') {
+      const help = document.getElementById('cameraPermissionHelp');
+      if (help) help.classList.add('active');
     }
+  } catch (e) {
+    console.info('Camera startup permission check:', e);
+  }
+}
+
+async function stopCamera() {
+  const streams = new Set();
+  if (currentStream) streams.add(currentStream);
+
+  const videos = [
+    document.getElementById('registerVideo'),
+    document.getElementById('attendanceVideo')
+  ].filter(Boolean);
+
+  videos.forEach(video => {
+    if (video.srcObject) streams.add(video.srcObject);
+    try { video.pause(); } catch (_) {}
   });
+
+  videos.forEach(video => { video.srcObject = null; });
+
+  for (const stream of streams) {
+    try { stream.getTracks().forEach(track => track.stop()); } catch (_) {}
+  }
+
+  currentStream = null;
+  await new Promise(resolve => setTimeout(resolve, 50));
 }
 
 async function capturePhoto() {
   if (!modelsLoaded) { showToast('Models loading...', 'error'); return; }
+
   const video = document.getElementById('registerVideo');
-  if (!currentStream || !video.srcObject) {
+
+  if (!currentStream || !video?.srcObject) {
     await openRegistrationCamera();
     return;
   }
-  if (!video.videoWidth || !video.videoHeight) {
-    showToast('Camera is starting. Try again in a moment.', 'error');
+
+  try {
+    await waitForVideoReady(video, 8000);
+  } catch (e) {
+    showToast('Camera preview is not ready yet. Please wait a moment and try again.', 'error');
     return;
   }
-  const canvas = document.getElementById('registerCanvas');
+
+  if (!video.videoWidth || !video.videoHeight) {
+    showToast('Camera has no usable image dimensions yet. Please try again.', 'error');
+    return;
+  }
+
+const canvas = document.getElementById('registerCanvas');
   canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
@@ -773,7 +956,6 @@ async function capturePhoto() {
   document.getElementById('registerForm').style.display = 'block';
   showToast('Face captured! Fill details.', 'success');
 }
-
 function retakePhoto() {
   document.getElementById('registerPreview').style.display = 'none';
   document.getElementById('registerVideo').style.display = 'block';
@@ -785,7 +967,6 @@ function retakePhoto() {
   capturedDescriptor = null; capturedImage = null;
   if (!currentStream) openRegistrationCamera();
 }
-
 async function handleFileUpload(e) {
   const file = e.target.files[0]; if (!file) return;
   const img = await faceapi.bufferToImage(file);
@@ -806,7 +987,6 @@ async function handleFileUpload(e) {
   document.getElementById('registerForm').style.display = 'block';
   showToast('Photo uploaded! Fill details.', 'success');
 }
-
 function previewAutoId() {
   const group = document.getElementById('regGroup').value.trim();
   document.getElementById('regId').value = group ? nextPersonId(group) : '';
@@ -818,26 +998,47 @@ function savePerson() {
   const group = document.getElementById('regGroup').value.trim();
   const parentName = document.getElementById('regParentName').value.trim();
   const parentPhone = document.getElementById('regParentPhone').value.trim();
+
   if (!name) { showToast('Name is required', 'error'); return; }
   if (!phone) { showToast('Phone number is required', 'error'); return; }
   if (!group) { showToast('Group / Class is required', 'error'); return; }
   if (!capturedDescriptor) { showToast('Capture a photo first', 'error'); return; }
+
   const duplicate = DB.findDuplicatePerson(name, capturedDescriptor);
-  if (duplicate) { showToast('Duplicate detected: ' + duplicate.person.name + ' already has this face', 'error'); return; }
+  if (duplicate) {
+    showToast(`Duplicate detected: ${duplicate.person.name} already has this face`, 'error');
+    return;
+  }
+
   const idNum = nextPersonId(group);
   const person = {
-    id: Date.now(), name, phone, idNum, group, parentName, parentPhone,
-    descriptor: capturedDescriptor, photo: capturedImage, createdAt: new Date().toISOString()
+    id: Date.now(),
+    name,
+    phone,
+    idNum,
+    group,
+    parentName,
+    parentPhone,
+    descriptor: capturedDescriptor,
+    photo: capturedImage,
+    createdAt: new Date().toISOString()
   };
-  DB.addPerson(person); buildFaceMatcher();
+
+  DB.addPerson(person);
+  buildFaceMatcher();
+
   document.getElementById('regName').value = '';
   document.getElementById('regPhone').value = '';
   document.getElementById('regId').value = '';
   document.getElementById('regGroup').value = '';
   document.getElementById('regParentName').value = '';
   document.getElementById('regParentPhone').value = '';
-  retakePhoto(); updateStats(); renderPeople(); populateSelects();
-  showToast(name + ' registered as ' + idNum + '!', 'success');
+
+  retakePhoto();
+  updateStats();
+  renderPeople();
+  populateSelects();
+  showToast(`✅ ${name} registered as ${idNum}!`, 'success');
 }
 
 // ===================== ATTENDANCE =====================
@@ -858,24 +1059,32 @@ async function startRecognition() {
   faceapi.matchDimensions(document.getElementById('attendanceOverlay'), displaySize);
   recognitionInterval = setInterval(async () => {
     if (video.paused || video.ended || pendingUnknown) return;
+
     const detections = await faceapi.detectAllFaces(
-      video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })
+      video,
+      new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })
     ).withFaceLandmarks().withFaceDescriptors();
+
     const displaySize = { width: video.videoWidth || 640, height: video.videoHeight || 480 };
     const overlay = document.getElementById('attendanceOverlay');
     faceapi.matchDimensions(overlay, displaySize);
     const resized = faceapi.resizeResults(detections, displaySize);
     const ctx = overlay.getContext('2d');
     ctx.clearRect(0, 0, overlay.width, overlay.height);
+
     let recognizedCount = 0;
     let unknownFound = null;
+
     resized.forEach(detection => {
       const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
       const box = detection.detection.box;
       const isKnown = bestMatch.label !== 'unknown';
       const person = isKnown ? DB.people.find(p => p.id.toString() === bestMatch.label) : null;
-      ctx.strokeStyle = isKnown ? '#22c55e' : '#f59e0b'; ctx.lineWidth = 3;
+
+      ctx.strokeStyle = isKnown ? '#22c55e' : '#f59e0b';
+      ctx.lineWidth = 3;
       ctx.strokeRect(box.x, box.y, box.width, box.height);
+
       const label = person ? person.name : 'UNKNOWN';
       ctx.font = 'bold 14px sans-serif';
       const tw = ctx.measureText(label).width + 20;
@@ -883,26 +1092,30 @@ async function startRecognition() {
       ctx.fillRect(box.x, Math.max(0, box.y - 25), tw, 25);
       ctx.fillStyle = '#fff';
       ctx.fillText(label, box.x + 10, Math.max(18, box.y - 7));
+
       if (isKnown && person) {
         recognizedCount++;
         if (DB.markAttendance(person.id, DB.getToday(), 'face')) {
-          showToast(person.name + ' marked present!', 'success');
-          loadTodayAttendance(); updateStats(); loadRecords();
+          showToast(`✅ ${person.name} marked present!`, 'success');
+          loadTodayAttendance();
+          updateStats();
+          loadRecords();
         }
       } else if (!unknownFound) {
         unknownFound = detection;
       }
     });
+
     document.getElementById('recStatus').textContent =
       unknownFound ? '⚠️ Unknown person detected' :
-      recognizedCount > 0 ? recognizedCount + ' face(s) recognized' : 'Scanning...';
+      recognizedCount > 0 ? `${recognizedCount} face(s) recognized` : 'Scanning...';
+
     if (unknownFound) {
       const frame = captureCanvasFrame(video);
       openUnknownPanel(unknownFound.descriptor, frame);
     }
   }, 1000);
 }
-
 function stopRecognition() {
   if (recognitionInterval) { clearInterval(recognitionInterval); recognitionInterval = null; }
   stopCamera();
@@ -912,16 +1125,14 @@ function stopRecognition() {
   document.getElementById('btnStopRec').style.display = 'none';
   document.getElementById('recStatus').textContent = 'Scanning...';
 }
-
 function manualCheckIn() {
   const personId = document.getElementById('manualPerson').value;
   const date = document.getElementById('manualDate').value || DB.getToday();
   if (!personId) { showToast('Select a person', 'error'); return; }
   if (DB.markAttendance(parseInt(personId), date, 'manual')) {
-    showToast('Attendance marked!', 'success'); loadTodayAttendance(); updateStats();
+    showToast('✅ Attendance marked!', 'success'); loadTodayAttendance(); updateStats();
   } else { showToast('Already marked for this date', 'error'); }
 }
-
 function loadTodayAttendance() {
   const today = DB.getToday();
   const records = DB.getAttendanceForDate(today);
@@ -935,7 +1146,7 @@ function loadTodayAttendance() {
   if (records.length === 0) { container.innerHTML = '<div class="empty-state"><p>No attendance today</p></div>'; return; }
   container.innerHTML = records.map(r => {
     const p = DB.people.find(x => x.id === r.personId); if (!p) return '';
-    return '<div class="attendance-row present"><img src="' + (p.photo||'') + '" class="person-avatar" style="width:40px;height:40px;" onerror="this.style.display=\'none\'"><div style="flex:1"><div class="person-name">' + p.name + '</div><div class="person-meta">' + p.phone + ' &bull; ' + r.time + ' &bull; ' + (r.method==='face'?'Auto':'Manual') + '</div></div><span class="status-badge present">Present</span></div>';
+    return `<div class="attendance-row present"><img src="${p.photo||''}" class="person-avatar" style="width:40px;height:40px;" onerror="this.style.display='none'"><div style="flex:1"><div class="person-name">${p.name}</div><div class="person-meta">${p.phone} • ${r.time} • ${r.method==='face'?'🤖 Auto':'✋ Manual'}</div></div><span class="status-badge present">Present</span></div>`;
   }).join('');
 }
 
@@ -951,7 +1162,7 @@ function loadRecords() {
   if (peopleToShow.length === 0) { container.innerHTML = '<div class="empty-state"><p>No people in this group</p></div>'; return; }
   container.innerHTML = peopleToShow.map(person => {
     const isPresent = records.some(r => r.personId === person.id);
-    return '<div class="attendance-row ' + (isPresent?'present':'absent') + '"><img src="' + (person.photo||'') + '" class="person-avatar" style="width:40px;height:40px;" onerror="this.style.display=\'none\'"><div style="flex:1"><div class="person-name">' + person.name + '</div><div class="person-meta">' + person.phone + ' &bull; ' + (person.idNum||'No ID') + ' &bull; ' + person.group + '</div></div><span class="status-badge ' + (isPresent?'present':'absent') + '">' + (isPresent?'Present':'Absent') + '</span>' + (!isPresent?'<button class="icon-btn check" onclick="quickMark(' + person.id + ',\'' + date + '\')">&#10003;</button>':'') + (isPresent?'<button class="icon-btn delete" onclick="quickUnmark(' + person.id + ',\'' + date + '\')">&#10005;</button>':'') + '</div>';
+    return `<div class="attendance-row ${isPresent?'present':'absent'}"><img src="${person.photo||''}" class="person-avatar" style="width:40px;height:40px;" onerror="this.style.display='none'"><div style="flex:1"><div class="person-name">${person.name}</div><div class="person-meta">${person.phone} • ${person.idNum||'No ID'} • ${person.group}</div></div><span class="status-badge ${isPresent?'present':'absent'}">${isPresent?'Present':'Absent'}</span>${!isPresent?`<button class="icon-btn check" onclick="quickMark(${person.id},'${date}')">✓</button>`:''}${isPresent?`<button class="icon-btn delete" onclick="quickUnmark(${person.id},'${date}')">✕</button>`:''}</div>`;
   }).join('');
 }
 function setToday() { document.getElementById('filterDate').value = DB.getToday(); loadRecords(); }
@@ -965,12 +1176,15 @@ function renderPeople() {
   let filtered = DB.people;
   if (search) filtered = filtered.filter(p => p.name.toLowerCase().includes(search) || (p.phone||'').includes(search));
   if (filtered.length === 0) {
-    container.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h3>No people found</h3><p>Register someone to get started</p></div>';
+    container.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h3>No people found</h3><p>Register someone to get started</p></div>`;
     return;
   }
-  container.innerHTML = filtered.map(person =>
-    '<div class="person-card"><img src="' + (person.photo||'') + '" class="person-avatar" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>&#128100;</text></svg>\'"><div class="person-info"><div class="person-name">' + person.name + '</div><div class="person-meta">&#128222; ' + person.phone + ' &bull; ' + (person.idNum||'No ID') + ' &bull; ' + person.group + '</div></div><div class="person-actions"><button class="icon-btn edit" onclick="openEditModal(' + person.id + ')">&#9999;&#65039;</button><button class="icon-btn delete" onclick="deletePerson(' + person.id + ')">&#128465;&#65039;</button></div></div>'
-  ).join('');
+  container.innerHTML = filtered.map(person => `
+    <div class="person-card">
+      <img src="${person.photo||''}" class="person-avatar" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👤</text></svg>'">
+      <div class="person-info"><div class="person-name">${person.name}</div><div class="person-meta">📞 ${person.phone} • ${person.idNum||'No ID'} • ${person.group}</div></div>
+      <div class="person-actions"><button class="icon-btn edit" onclick="openEditModal(${person.id})">✏️</button><button class="icon-btn delete" onclick="deletePerson(${person.id})">🗑️</button></div>
+    </div>`).join('');
 }
 function openEditModal(id) {
   const p = DB.people.find(x => x.id === id); if (!p) return;
@@ -979,8 +1193,6 @@ function openEditModal(id) {
   document.getElementById('editPhone').value = p.phone || '';
   document.getElementById('editId').value = p.idNum;
   document.getElementById('editGroup').value = p.group;
-  document.getElementById('editParentName').value = p.parentName || '';
-  document.getElementById('editParentPhone').value = p.parentPhone || '';
   document.getElementById('editModal').classList.add('active');
 }
 function closeModal() { document.getElementById('editModal').classList.remove('active'); }
@@ -990,12 +1202,10 @@ function updatePerson() {
   const phone = document.getElementById('editPhone').value.trim();
   const idNum = document.getElementById('editId').value.trim();
   const group = document.getElementById('editGroup').value.trim();
-  const parentName = document.getElementById('editParentName').value.trim();
-  const parentPhone = document.getElementById('editParentPhone').value.trim();
   if (!name) { showToast('Name required', 'error'); return; }
   if (!phone) { showToast('Phone required', 'error'); return; }
-  DB.updatePerson(id, { name, phone, idNum, group, parentName, parentPhone });
-  renderPeople(); populateSelects(); loadRecords(); closeModal(); showToast('Updated!', 'success');
+  DB.updatePerson(id, { name, phone, idNum, group });
+  renderPeople(); populateSelects(); loadRecords(); closeModal(); showToast('✅ Updated!', 'success');
 }
 function deletePerson(id) {
   if (!confirm('Delete this person and all their attendance records?')) return;
@@ -1009,60 +1219,18 @@ function exportCSV() {
   let csv = 'Name,Phone,ID,Group,Parent/Guardian,Parent Phone,Status,Time,Method\n';
   DB.people.forEach(p => {
     const r = records.find(x => x.personId === p.id);
-    csv += '"' + p.name + '","' + (p.phone||'') + '","' + (p.idNum||'') + '","' + p.group + '","' + (p.parentName||'') + '","' + (p.parentPhone||'') + '",' + (r?'Present':'Absent') + ',' + (r?r.time:'') + ',' + (r?r.method:'') + '\n';
+    csv += `"${p.name}","${p.phone||''}","${p.idNum||''}","${p.group}","${p.parentName||''}","${p.parentPhone||''}",${r?'Present':'Absent'},${r?r.time:''},${r?r.method:''}\n`;
   });
-  downloadFile(csv, 'attendance_' + date + '.csv', 'text/csv'); showToast('CSV exported!', 'success');
+  downloadFile(csv, `attendance_${date}.csv`, 'text/csv'); showToast('CSV exported!', 'success');
 }
 function exportJSON() {
   const data = { exportedAt: new Date().toISOString(), people: DB.people.map(p => ({...p, descriptor: undefined})), attendance: DB.attendance };
-  downloadFile(JSON.stringify(data, null, 2), 'attendance_export_' + DB.getToday() + '.json', 'application/json'); showToast('JSON exported!', 'success');
+  downloadFile(JSON.stringify(data, null, 2), `attendance_export_${DB.getToday()}.json`, 'application/json'); showToast('JSON exported!', 'success');
 }
 function downloadFile(content, filename, type) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
-}
-
-// ===================== MOBILE DIAGNOSTICS =====================
-async function runMobileDiagnostics() {
-  const el = document.getElementById('mobileDiagnostic');
-  if (!el) return;
-  const rows = [];
-  rows.push('Browser: ' + (navigator.userAgent.includes('Chrome') ? 'Chrome' : navigator.userAgent.includes('Safari') ? 'Safari' : 'Other'));
-  rows.push('HTTPS / secure context: ' + (window.isSecureContext ? 'YES' : 'NO'));
-  rows.push('Camera API: ' + (navigator.mediaDevices?.getUserMedia ? 'Available' : 'Not available'));
-  if (navigator.mediaDevices?.enumerateDevices) {
-    try {
-      const cameras = await CAMERA_MANAGER.enumerate();
-      rows.push('Cameras detected: ' + cameras.length);
-      const rear = cameras.find(d => /back|rear|environment/i.test(d.label || ''));
-      rows.push('Rear camera: ' + (rear ? 'Detected' : cameras.length ? 'Available but label hidden until permission' : 'Not detected'));
-    } catch (_) {
-      rows.push('Camera list: Browser did not expose devices');
-    }
-  }
-  if (navigator.permissions?.query) {
-    try {
-      const p = await navigator.permissions.query({ name: 'camera' });
-      rows.push('Camera permission: ' + (p.state === 'granted' ? 'Allowed' : p.state === 'prompt' ? 'Ask when camera opens' : 'Blocked'));
-    } catch (_) {
-      rows.push('Camera permission: Browser did not expose permission state');
-    }
-  }
-  rows.push('Face models: ' + (modelsLoaded ? 'Loaded' : 'Not loaded'));
-  rows.push('Registered faces: ' + DB.people.length);
-  rows.push('Google Apps Script URL: ' + (DB.scriptUrl ? 'Saved' : 'Not configured'));
-  if (DB.scriptUrl) {
-    try {
-      const r = await fetch(DB.scriptUrl + '?action=load&check=' + Date.now(), { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const d = await r.json();
-      rows.push('Google API: ' + (d.error ? 'Error: ' + d.error : 'Connected'));
-    } catch (e) {
-      rows.push('Google API: Error: ' + e.message);
-    }
-  }
-  el.innerHTML = rows.map(x => '<div>' + x + '</div>').join('');
 }
 
 // ===================== UI =====================
@@ -1086,9 +1254,9 @@ function updateStats() {
 function populateSelects() {
   const personSelect = document.getElementById('manualPerson');
   const groupSelect = document.getElementById('filterGroup');
-  personSelect.innerHTML = '<option value="">-- Choose person --</option>' + DB.people.map(p => '<option value="' + p.id + '">' + p.name + ' (' + p.phone + ')</option>').join('');
+  personSelect.innerHTML = '<option value="">-- Choose person --</option>' + DB.people.map(p => `<option value="${p.id}">${p.name} (${p.phone})</option>`).join('');
   const groups = [...new Set(DB.people.map(p => p.group).filter(g => g))];
-  groupSelect.innerHTML = '<option value="">All Groups</option>' + groups.map(g => '<option value="' + g + '">' + g + '</option>').join('');
+  groupSelect.innerHTML = '<option value="">All Groups</option>' + groups.map(g => `<option value="${g}">${g}</option>`).join('');
 }
 function showToast(msg, type='') {
   const toast = document.getElementById('toast');
@@ -1100,21 +1268,89 @@ function showToast(msg, type='') {
 // ===================== INIT =====================
 window.addEventListener('load', () => {
   loadModels();
+  // Ask for camera permission when the app starts. If the browser requires a
+  // user gesture, the request is retried when Register/Attendance is opened.
+  // Do not auto-open the camera on page load.
+  // Mobile browsers commonly require camera access to be initiated by a user gesture.
   const video = document.getElementById('registerVideo');
   if (video) video.style.display = 'block';
   document.getElementById('manualDate').value = DB.getToday();
   document.getElementById('filterDate').value = DB.getToday();
-
-  // Show HTTPS warning if not on secure context
-  if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-    document.getElementById('httpsBanner').classList.add('active');
-  }
-
-  // Run diagnostics after a short delay
-  setTimeout(runMobileDiagnostics, 1000);
 });
-
+  setTimeout(requestCameraPermissionOnAppStart, 500);
+  const cameraStatus = document.getElementById('cameraSecurityStatus');
+  if (cameraStatus) {
+    cameraStatus.textContent = window.isSecureContext
+      ? '🔒 Secure camera context detected.'
+      : '⚠️ This page is not HTTPS. Mobile live camera may be blocked.';
+  }
 window.addEventListener('beforeunload', () => { stopCamera(); stopRecognition(); });
 </script>
+
+<input id="phoneCameraInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhoneCameraCapture(event)">
+
+
+
+async function retryCameraPermission() {
+  try {
+    await CAMERA_MANAGER.requestPermission();
+    showToast('✅ Camera permission granted. You can now open the camera.', 'success');
+    hideCameraHelp();
+    await runMobileDiagnostics();
+  } catch (e) {
+    showCameraFailure(e);
+  }
+}
+
+async function runMobileDiagnostics() {
+  const el = document.getElementById('mobileDiagnostic');
+  if (!el) return;
+
+  const rows = [];
+  rows.push(`Browser: ${navigator.userAgent.includes('Chrome') ? 'Chrome' : navigator.userAgent.includes('Safari') ? 'Safari' : 'Other'}`);
+  rows.push(`HTTPS / secure context: ${window.isSecureContext ? '✅ YES' : '❌ NO'}`);
+  rows.push(`Live camera allowed here: ${window.isSecureContext || /^(localhost|127\.0\.0\.1|::1)$/.test(location.hostname) ? '✅ YES' : '❌ BLOCKED — HTTPS required'}`);
+  rows.push(`Camera API: ${navigator.mediaDevices?.getUserMedia ? '✅ Available' : '❌ Not available'}`);
+
+  if (navigator.mediaDevices?.enumerateDevices) {
+    try {
+      const cameras = await CAMERA_MANAGER.enumerate();
+      rows.push(`Cameras detected: ${cameras.length}`);
+      const rear = cameras.find(d => /back|rear|environment/i.test(d.label || ''));
+      rows.push(`Rear camera: ${rear ? '✅ Detected' : cameras.length ? '🟡 Available but label hidden until permission' : '❌ Not detected'}`);
+    } catch (_) {
+      rows.push('Camera list: Browser did not expose devices');
+    }
+  }
+
+  if (navigator.permissions?.query) {
+    try {
+      const p = await navigator.permissions.query({ name: 'camera' });
+      rows.push(`Camera permission: ${p.state === 'granted' ? '✅ Allowed' : p.state === 'prompt' ? '🟡 Ask when camera opens' : '❌ Blocked'}`);
+    } catch (_) {
+      rows.push('Camera permission: Browser did not expose permission state');
+    }
+  }
+
+  rows.push(`Face models: ${modelsLoaded ? '✅ Loaded' : '❌ Not loaded'}`);
+  rows.push(`Registered faces: ${DB.people.length}`);
+  rows.push(`Google Apps Script URL: ${DB.scriptUrl ? '✅ Saved' : '❌ Not configured'}`);
+
+  if (DB.scriptUrl) {
+    try {
+      const r = await fetch(DB.scriptUrl + '?action=load&check=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      rows.push(`Google API: ${d.error ? '❌ '+d.error : '✅ Connected'}`);
+    } catch (e) {
+      rows.push(`Google API: ❌ ${e.message}`);
+    }
+  }
+
+  el.innerHTML = rows.map(x => `<div>${x}</div>`).join('');
+}
+
+window.addEventListener('load', () => setTimeout(runMobileDiagnostics, 1000));
+
 </body>
 </html>
