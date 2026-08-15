@@ -240,7 +240,7 @@
       </div>
       <button class="btn btn-primary" onclick="saveScriptUrl()">💾 Save URL</button>
       <button class="btn btn-success" onclick="syncToGoogle()">⬆️ Push to Google Sheet</button>
-      <button class="btn btn-info" onclick="syncFromGoogle()">⬇️ Pull from Google Sheet</button>
+      <button class="btn btn-info" onclick="syncFromGoogle()">⬇️ Pull from Google Sheet</button><button class="btn btn-outline" onclick="autoSyncFromGoogle('manual')">🔄 Sync All Now</button>
       <button class="btn btn-outline" onclick="clearLocalData()">🗑️ Clear Local Data</button>
     </div>
 
@@ -299,7 +299,6 @@
       <li>Set <b>Camera → Allow</b>.</li>
       <li>Reload FaceAttendance Pro and tap <b>Open Rear Camera</b> again.</li>
     </ol>
-    <button type="button" class="btn btn-primary" onclick="retryCameraPermission()">🔐 Allow Camera / Try Again</button>
     <button type="button" class="btn btn-outline" onclick="openPhoneCameraFallback()">📱 Use Phone Camera Instead</button>
   </div>
   <div class="camera-error" id="cameraError"></div>
@@ -376,22 +375,64 @@ const DB = {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   },
 
-  importAll(data) {
-    if (data.people) { this.people = data.people; this.savePeople(); }
-    if (data.attendance) { this.attendance = data.attendance; this.saveAttendance(); }
-    buildFaceMatcher(); updateStats(); renderPeople(); populateSelects(); loadRecords(); loadTodayAttendance();
-    this.setPending(false);
+  importAll(data, options = {}) {
+    const replace = options.replace === true;
+
+    if (Array.isArray(data.people)) {
+      if (replace) {
+        this.people = data.people;
+      } else {
+        const byId = new Map(this.people.map(p => [String(p.id), p]));
+        const byIdNum = new Map(this.people.filter(p => p.idNum).map(p => [String(p.idNum).toUpperCase(), p]));
+        for (const incoming of data.people) {
+          const existing = byId.get(String(incoming.id)) ||
+            (incoming.idNum ? byIdNum.get(String(incoming.idNum).toUpperCase()) : null);
+          if (existing) Object.assign(existing, incoming);
+          else this.people.push(incoming);
+        }
+      }
+      localStorage.setItem('fa_people', JSON.stringify(this.people));
+    }
+
+    if (Array.isArray(data.attendance)) {
+      if (replace) {
+        this.attendance = data.attendance;
+      } else {
+        const seen = new Set(this.attendance.map(a => `${String(a.personId)}|${a.date}`));
+        for (const incoming of data.attendance) {
+          const key = `${String(incoming.personId)}|${incoming.date}`;
+          if (!seen.has(key)) {
+            this.attendance.push(incoming);
+            seen.add(key);
+          }
+        }
+      }
+      localStorage.setItem('fa_attendance', JSON.stringify(this.attendance));
+    }
+
+    buildFaceMatcher();
+    updateStats();
+    renderPeople();
+    populateSelects();
+    loadRecords();
+    loadTodayAttendance();
+
+    if (options.markClean !== false) this.setPending(false);
   }
 };
 
 function updateSyncBadge() {
   const el = document.getElementById('syncBadge');
+  if (!el) return;
   if (DB.scriptUrl && !DB.pendingSync) {
-    el.className = 'sync-badge synced'; el.textContent = '✅ Synced to Google';
+    el.className = 'sync-badge synced';
+    el.textContent = `✅ Synced • ${DB.people.length} registrations`;
   } else if (DB.scriptUrl && DB.pendingSync) {
-    el.className = 'sync-badge pending'; el.textContent = '⏳ Sync Pending';
+    el.className = 'sync-badge pending';
+    el.textContent = `⏳ Sync Pending • ${DB.people.length} local`;
   } else {
-    el.className = 'sync-badge pending'; el.textContent = '⏳ Local Only';
+    el.className = 'sync-badge pending';
+    el.textContent = `⏳ Local Only • ${DB.people.length} registrations`;
   }
 }
 
@@ -422,24 +463,54 @@ async function syncToGoogle() {
   } catch(e) { showToast('Sync failed: ' + e.message, 'error'); }
 }
 
-async function syncFromGoogle() {
-  if (!DB.scriptUrl) { showToast('Please set your Google Apps Script URL in Cloud tab', 'error'); showSection('cloud'); return; }
-  showToast('Pulling from Google Sheet...', 'success');
+async function syncFromGoogle(options = {}) {
+  if (!DB.scriptUrl) {
+    showToast('Please set your Google Apps Script URL in Cloud tab', 'error');
+    showSection('cloud');
+    return false;
+  }
+
+  showSyncProgress('Connecting to Google Sheet…');
+
   try {
     const res = await fetch(DB.scriptUrl + '?action=load', { cache: 'no-store' });
     if (!res.ok) throw new Error('Google Apps Script returned HTTP ' + res.status);
+
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    if (data.people) {
+
+    if (Array.isArray(data.people)) {
       data.people.forEach(p => {
         if (typeof p.descriptor === 'string') {
-          try { p.descriptor = JSON.parse(p.descriptor); } catch (_) { p.descriptor = null; }
+          try { p.descriptor = JSON.parse(p.descriptor); }
+          catch (_) { p.descriptor = null; }
         }
       });
     }
-    DB.importAll(data);
-    showToast('✅ Data restored from Google Sheet!', 'success');
-  } catch(e) { showToast('Pull failed: ' + e.message, 'error'); }
+
+    const beforePeople = DB.people.length;
+    const beforeAttendance = DB.attendance.length;
+
+    DB.importAll(data, { replace: false, markClean: true });
+
+    const addedPeople = DB.people.length - beforePeople;
+    const addedAttendance = DB.attendance.length - beforeAttendance;
+
+    updateSyncBadge();
+
+    showToast(
+      `✅ Cloud synchronized — ${DB.people.length} registrations, ${DB.attendance.length} attendance records` +
+      ((addedPeople || addedAttendance)
+        ? ` (+${addedPeople} registrations, +${addedAttendance} attendance)`
+        : ''),
+      'success'
+    );
+    return true;
+  } catch (e) {
+    showToast('Pull failed: ' + e.message, 'error');
+    updateSyncBadge();
+    return false;
+  }
 }
 
 function saveScriptUrl() {
@@ -609,339 +680,119 @@ function buildFaceMatcher() {
 }
 
 // ===================== CAMERA =====================
-// Device-independent camera manager.
-// Never assumes camera ID 0/1 or a particular phone manufacturer.
-const CAMERA_MANAGER = {
-  permissionState: 'unknown',
-  devices: [],
+async function startCamera(videoEl, preferredFacing='environment') {
+  if (!videoEl) return null;
 
-  async permissionStateNow() {
+  const help = document.getElementById('cameraPermissionHelp');
+  const errBox = document.getElementById('cameraError');
+
+  const showCameraError = (message) => {
+    if (help) help.classList.add('active');
+    if (errBox) {
+      errBox.textContent = message;
+      errBox.classList.add('active');
+    }
+    showToast(message, 'error');
+  };
+
+  if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    showCameraError('Live camera requires HTTPS on mobile. Open FaceAttendance from an HTTPS web address, not a file:// page.');
+    return null;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showCameraError('This browser does not provide live camera access. Use the Phone Camera fallback below.');
+    return null;
+  }
+
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
+  }
+
+  // Rear camera first. If the browser cannot honor the preference,
+  // progressively relax the constraints rather than failing immediately.
+  const attempts = [
+    { video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: preferredFacing }, audio: false },
+    { video: true, audio: false }
+  ];
+
+  let lastError = null;
+
+  for (const constraints of attempts) {
     try {
-      if (navigator.permissions?.query) {
-        const p = await navigator.permissions.query({ name: 'camera' });
-        this.permissionState = p.state;
-        return p.state;
-      }
-    } catch (_) {}
-    return 'unknown';
-  },
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      currentStream = stream;
 
-  async requestPermission() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new DOMException('Camera API unavailable', 'NotSupportedError');
-    }
+      videoEl.srcObject = stream;
+      videoEl.setAttribute('playsinline', '');
+      videoEl.setAttribute('autoplay', '');
+      videoEl.muted = true;
 
-    // This call is intentionally made without a camera ID. Android/browser
-    // chooses the device and shows its native permission prompt when required.
-    const probe = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' } },
-      audio: false
-    });
-
-    probe.getTracks().forEach(track => track.stop());
-    this.permissionState = 'granted';
-    return true;
-  },
-
-  async enumerate() {
-    if (!navigator.mediaDevices?.enumerateDevices) return [];
-    try {
-      const all = await navigator.mediaDevices.enumerateDevices();
-      this.devices = all.filter(d => d.kind === 'videoinput');
-      return this.devices;
-    } catch (_) {
-      return [];
-    }
-  },
-
-  async open(videoEl, preferredFacing = 'environment') {
-    if (!videoEl) throw new Error('Camera video element not found.');
-
-    const localHost =
-      location.hostname === 'localhost' ||
-      location.hostname === '127.0.0.1' ||
-      location.hostname === '::1';
-
-    if (!window.isSecureContext && !localHost) {
-      throw new DOMException('Camera requires HTTPS', 'SecurityError');
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new DOMException('Live camera access is unavailable', 'NotSupportedError');
-    }
-
-    stopCamera();
-
-    // First permission request. Do not select a manufacturer-specific camera ID.
-    await this.requestPermission();
-
-    // Labels/device IDs become available after permission on most browsers.
-    const devices = await this.enumerate();
-    const rear = devices.find(d => /back|rear|environment/i.test(d.label || ''));
-
-    const attempts = [];
-
-    // Prefer rear camera by semantic facing mode.
-    attempts.push({
-      video: {
-        facingMode: { exact: preferredFacing },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: false
-    });
-
-    // If enumeration exposed a rear camera, use its runtime-generated ID.
-    if (rear?.deviceId) {
-      attempts.push({
-        video: {
-          deviceId: { exact: rear.deviceId },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
+      await new Promise(resolve => {
+        if (videoEl.readyState >= 2) resolve();
+        else videoEl.onloadedmetadata = () => resolve();
       });
+
+      await videoEl.play();
+
+      if (help) help.classList.remove('active');
+      if (errBox) errBox.classList.remove('active');
+      return stream;
+    } catch (e) {
+      lastError = e;
     }
-
-    // Relax constraints for devices that do not expose facingMode correctly.
-    attempts.push(
-      { video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
-      { video: { facingMode: preferredFacing }, audio: false },
-      { video: true, audio: false }
-    );
-
-    let lastError = null;
-
-    for (const constraints of attempts) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        currentStream = stream;
-
-        videoEl.srcObject = stream;
-        videoEl.setAttribute('playsinline', '');
-        videoEl.setAttribute('autoplay', '');
-        videoEl.muted = true;
-
-        await new Promise(resolve => {
-          if (videoEl.readyState >= 2) resolve();
-          else videoEl.onloadedmetadata = resolve;
-        });
-
-        await videoEl.play();
-        await waitForVideoReady(videoEl, 8000);
-        await this.permissionStateNow();
-
-        const track = stream.getVideoTracks()[0];
-        const settings = track?.getSettings?.() || {};
-        console.info('FaceAttendance camera selected:', {
-          label: track?.label || 'unknown',
-          facingMode: settings.facingMode || 'unknown',
-          width: settings.width || videoEl.videoWidth,
-          height: settings.height || videoEl.videoHeight
-        });
-
-        hideCameraHelp();
-        return stream;
-      } catch (e) {
-        lastError = e;
-      }
-    }
-
-    throw lastError || new Error('Unable to open any available camera.');
   }
-};
-
-
-async function waitForVideoReady(video, timeoutMs = 8000) {
-  if (!video) throw new Error('Camera video element not found.');
-  if (video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= 2) return true;
-
-  return new Promise((resolve, reject) => {
-    let done = false;
-    const cleanup = () => {
-      video.removeEventListener('loadedmetadata', ready);
-      video.removeEventListener('canplay', ready);
-      video.removeEventListener('playing', ready);
-      clearTimeout(timer);
-    };
-    const finish = (ok, err) => {
-      if (done) return;
-      done = true;
-      cleanup();
-      err ? reject(err) : resolve(ok);
-    };
-    const ready = () => {
-      if (video.videoWidth > 0 && video.videoHeight > 0) finish(true);
-    };
-    const timer = setTimeout(
-      () => finish(false, new Error('Camera preview did not become ready in time.')),
-      timeoutMs
-    );
-    video.addEventListener('loadedmetadata', ready);
-    video.addEventListener('canplay', ready);
-    video.addEventListener('playing', ready);
-    ready();
-  });
-}
-
-function hideCameraHelp() {
-  const help = document.getElementById('cameraPermissionHelp');
-  const errBox = document.getElementById('cameraError');
-  if (help) help.classList.remove('active');
-  if (errBox) {
-    errBox.classList.remove('active');
-    errBox.textContent = '';
-  }
-}
-
-function showCameraFailure(error) {
-  const help = document.getElementById('cameraPermissionHelp');
-  const errBox = document.getElementById('cameraError');
-  const name = error?.name || '';
 
   let message = 'Unable to open the camera.';
-
-  if (name === 'NotAllowedError' || name === 'SecurityError') {
-    const ua = navigator.userAgent || '';
-    const ios = /iPhone|iPad|iPod/i.test(ua) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    message = ios
-      ? 'Camera access was denied or blocked on iOS. Allow Camera for this website in Safari Settings, return here, and tap Try Again.'
-      : 'Camera permission was denied or blocked. Allow Camera permission for FaceAttendance Pro and try again.';
-  } else if (name === 'NotFoundError') {
-    message = 'No camera was found on this device. You can use the Phone Camera / Upload option.';
-  } else if (name === 'NotReadableError' || name === 'AbortError') {
-    message = 'The camera is busy or unavailable. Close other camera apps and try again.';
-  } else if (name === 'OverconstrainedError') {
-    message = 'The preferred rear camera is unavailable. The app will try another available camera.';
-  } else if (name === 'NotSupportedError') {
-    message = 'This browser/WebView does not provide live camera access. Use the Phone Camera / Upload option.';
-  }
-
-  if (!window.isSecureContext &&
-      location.hostname !== 'localhost' &&
-      location.hostname !== '127.0.0.1') {
-    message = 'Live camera requires HTTPS. Open FaceAttendance Pro from its secure HTTPS address.';
-  }
-
-  if (help) help.classList.add('active');
-  if (errBox) {
-    errBox.textContent = message;
-    errBox.classList.add('active');
-  }
-
-  console.error('FaceAttendance camera error:', error);
-  showToast(message, 'error');
-}
-
-async function startCamera(videoEl, preferredFacing='environment') {
-  try {
-    return await CAMERA_MANAGER.open(videoEl, preferredFacing);
-  } catch (error) {
-    showCameraFailure(error);
-    return null;
-  }
-}
-
-// The Register button was calling this function, but the previous file did not
-// actually define it. Keep registration and attendance on the same camera manager.
-window.openRegistrationCamera = async function() {
-  const video = document.getElementById('registerVideo');
-  const stream = await startCamera(video, 'environment');
-
-  if (!stream) return null;
-
-  try {
-    await waitForVideoReady(video, 8000);
-  } catch (e) {
-    showCameraFailure(e);
-    await stopCamera();
-    return null;
-  }
-
-  video.style.display = 'block';
-  document.getElementById('registerPreview').style.display = 'none';
-  document.getElementById('btnOpenRegisterCamera').style.display = 'none';
-  document.getElementById('btnCapture').style.display = 'inline-flex';
-  document.getElementById('btnRetake').style.display = 'none';
-  document.getElementById('registerForm').style.display = 'none';
-
-  const help = document.getElementById('cameraHelp');
-  if (help) help.textContent = 'Camera is ready. Center the face and tap Take Photo.';
-
-  return stream;
-};
-
-async function requestCameraPermissionOnAppStart() {
-  // Do not crash the app if the browser refuses permission outside a user gesture.
-  // The same request is retried automatically when Register/Scan is opened.
-  try {
-    const state = await CAMERA_MANAGER.permissionStateNow();
-
-    if (state === 'granted') return;
-
-    if (state === 'prompt' && navigator.mediaDevices?.getUserMedia) {
-      try {
-        await CAMERA_MANAGER.requestPermission();
-      } catch (e) {
-        console.info('Camera permission will be requested from the camera action:', e.name);
-      }
-    } else if (state === 'denied') {
-      const help = document.getElementById('cameraPermissionHelp');
-      if (help) help.classList.add('active');
+  if (lastError) {
+    switch (lastError.name) {
+      case 'NotAllowedError':
+      case 'SecurityError':
+        message = 'Camera permission is blocked. Allow Camera for this site in browser/site settings, then try again.';
+        break;
+      case 'NotFoundError':
+        message = 'No camera was found. Use the Phone Camera fallback.';
+        break;
+      case 'NotReadableError':
+      case 'AbortError':
+        message = 'The camera is busy or unavailable. Close other camera apps and try again.';
+        break;
+      case 'OverconstrainedError':
+        message = 'The requested camera is unavailable. Try the Phone Camera fallback.';
+        break;
     }
-  } catch (e) {
-    console.info('Camera startup permission check:', e);
   }
+
+  showCameraError(message);
+  console.error('FaceAttendance camera error:', lastError);
+  return null;
 }
 
-async function stopCamera() {
-  const streams = new Set();
-  if (currentStream) streams.add(currentStream);
-
-  const videos = [
-    document.getElementById('registerVideo'),
-    document.getElementById('attendanceVideo')
-  ].filter(Boolean);
-
-  videos.forEach(video => {
-    if (video.srcObject) streams.add(video.srcObject);
-    try { video.pause(); } catch (_) {}
-  });
-
-  videos.forEach(video => { video.srcObject = null; });
-
-  for (const stream of streams) {
-    try { stream.getTracks().forEach(track => track.stop()); } catch (_) {}
+function stopCamera() {
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
   }
-
-  currentStream = null;
-  await new Promise(resolve => setTimeout(resolve, 50));
 }
 
 async function capturePhoto() {
   if (!modelsLoaded) { showToast('Models loading...', 'error'); return; }
-
   const video = document.getElementById('registerVideo');
 
-  if (!currentStream || !video?.srcObject) {
+  if (!currentStream || !video.srcObject) {
     await openRegistrationCamera();
     return;
   }
 
-  try {
-    await waitForVideoReady(video, 8000);
-  } catch (e) {
-    showToast('Camera preview is not ready yet. Please wait a moment and try again.', 'error');
-    return;
-  }
-
   if (!video.videoWidth || !video.videoHeight) {
-    showToast('Camera has no usable image dimensions yet. Please try again.', 'error');
+    showToast('Camera is starting. Try again in a moment.', 'error');
     return;
   }
 
-const canvas = document.getElementById('registerCanvas');
+  const canvas = document.getElementById('registerCanvas');
   canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
@@ -1265,11 +1116,34 @@ function showToast(msg, type='') {
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
+// ===================== AUTOMATIC CLOUD SYNCHRONIZATION =====================
+let autoSyncInProgress = false;
+
+function showSyncProgress(message) {
+  const el = document.getElementById('syncBadge');
+  if (el) {
+    el.className = 'sync-badge pending';
+    el.textContent = '🔄 ' + message;
+  }
+}
+
+async function autoSyncFromGoogle(reason = 'startup') {
+  if (autoSyncInProgress || !DB.scriptUrl) {
+    updateSyncBadge();
+    return false;
+  }
+  autoSyncInProgress = true;
+  try {
+    return await syncFromGoogle({ reason });
+  } finally {
+    autoSyncInProgress = false;
+    updateSyncBadge();
+  }
+}
+
 // ===================== INIT =====================
 window.addEventListener('load', () => {
   loadModels();
-  // Ask for camera permission when the app starts. If the browser requires a
-  // user gesture, the request is retried when Register/Attendance is opened.
   // Do not auto-open the camera on page load.
   // Mobile browsers commonly require camera access to be initiated by a user gesture.
   const video = document.getElementById('registerVideo');
@@ -1277,7 +1151,6 @@ window.addEventListener('load', () => {
   document.getElementById('manualDate').value = DB.getToday();
   document.getElementById('filterDate').value = DB.getToday();
 });
-  setTimeout(requestCameraPermissionOnAppStart, 500);
   const cameraStatus = document.getElementById('cameraSecurityStatus');
   if (cameraStatus) {
     cameraStatus.textContent = window.isSecureContext
@@ -1287,20 +1160,196 @@ window.addEventListener('load', () => {
 window.addEventListener('beforeunload', () => { stopCamera(); stopRecognition(); });
 </script>
 
+<script>
+/* Mobile camera preference: rear camera first, with optional front/back switching. */
+let faceAttendanceCameraStream = null;
+let faceAttendanceCameraMode = 'environment';
+
+async function switchAttendanceCamera() {
+  try {
+    if (typeof stopCamera === 'function') stopCamera();
+
+    faceAttendanceCameraMode =
+      faceAttendanceCameraMode === 'environment' ? 'user' : 'environment';
+
+    const constraints = {
+      video: { facingMode: { ideal: faceAttendanceCameraMode } },
+      audio: false
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+      faceAttendanceCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const video = document.querySelector('video');
+      if (video) {
+        video.srcObject = faceAttendanceCameraStream;
+        await video.play().catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.warn('Camera switch failed:', err);
+  }
+}
+</script>
+
+
 <input id="phoneCameraInput" type="file" accept="image/*" capture="environment" style="display:none" onchange="handlePhoneCameraCapture(event)">
 
 
-
-async function retryCameraPermission() {
-  try {
-    await CAMERA_MANAGER.requestPermission();
-    showToast('✅ Camera permission granted. You can now open the camera.', 'success');
-    hideCameraHelp();
-    await runMobileDiagnostics();
-  } catch (e) {
-    showCameraFailure(e);
+<script>
+(function(){
+  function cameraHelp(show, message) {
+    const panel = document.getElementById('cameraPermissionHelp');
+    const err = document.getElementById('cameraError');
+    if (panel) panel.classList.toggle('active', !!show);
+    if (err) {
+      err.textContent = message || '';
+      err.classList.toggle('active', !!message);
+    }
   }
-}
+
+  window.openPhoneCameraFallback = function(){
+    const input = document.getElementById('phoneCameraInput');
+    if (input) input.click();
+  };
+
+  window.handlePhoneCameraCapture = async function(event){
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    try {
+      const img = new Image();
+      img.onload = async function(){
+        const canvas = document.createElement('canvas');
+        const max = 1200;
+        const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const photo = canvas.toDataURL('image/jpeg', .88);
+
+        if (typeof faceapi !== 'undefined' && faceapi.nets.tinyFaceDetector.params) {
+          try {
+            const detection = await faceapi.detectSingleFace(
+              canvas,
+              new faceapi.TinyFaceDetectorOptions({inputSize:320, scoreThreshold:.5})
+            ).withFaceLandmarks().withFaceDescriptor();
+
+            if (detection) {
+              if (typeof capturedDescriptor !== 'undefined') capturedDescriptor = Array.from(detection.descriptor);
+              if (typeof capturedImage !== 'undefined') capturedImage = photo;
+
+              const preview = document.getElementById('registerPreview');
+              if (preview) {
+                preview.src = photo;
+                preview.style.display = 'block';
+              }
+
+              cameraHelp(false, '');
+              if (typeof showToast === 'function') showToast('Face captured successfully', 'success');
+              return;
+            }
+
+            cameraHelp(true, 'No clear face was found in that photo. Please take another photo with the person facing the camera.');
+            if (typeof showToast === 'function') showToast('No face detected in photo', 'error');
+          } catch (faceErr) {
+            console.warn('Face processing fallback:', faceErr);
+            if (typeof capturedImage !== 'undefined') capturedImage = photo;
+            cameraHelp(false, '');
+            if (typeof showToast === 'function') showToast('Photo captured. Face processing will continue when supported.', 'success');
+          }
+        } else {
+          if (typeof capturedImage !== 'undefined') capturedImage = photo;
+          cameraHelp(false, '');
+          if (typeof showToast === 'function') showToast('Photo captured', 'success');
+        }
+      };
+      img.src = URL.createObjectURL(file);
+    } catch (err) {
+      cameraHelp(true, 'The phone camera photo could not be processed. Try again or use the live camera.');
+    }
+
+    event.target.value = '';
+  };
+
+  // Generic camera starter used by the mobile camera button.
+  window.startRearCameraWithPermission = async function(videoElement){
+    try {
+      cameraHelp(false, '');
+      const constraints = {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        cameraHelp(true, 'This browser does not provide live camera access. Use “Use Phone Camera Instead”.');
+        return null;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (videoElement) {
+        videoElement.srcObject = stream;
+        await videoElement.play().catch(()=>{});
+      }
+      return stream;
+    } catch (err) {
+      let message = 'Camera could not be opened.';
+      if (err && err.name === 'NotAllowedError') {
+        message = 'Camera permission was denied or blocked for this site. Allow Camera permission in your browser site settings, then try again.';
+      } else if (err && err.name === 'NotFoundError') {
+        message = 'No suitable camera was found. Use “Use Phone Camera Instead”.';
+      } else if (err && err.name === 'SecurityError') {
+        message = 'The browser blocked camera access because this page is not being served from a secure HTTPS site. Open the app from its HTTPS address.';
+      }
+      cameraHelp(true, message);
+      return null;
+    }
+  };
+
+  // If the existing app has startCamera(), wrap it so permission errors expose instructions.
+  const oldStartCamera = window.startCamera;
+  if (typeof oldStartCamera === 'function') {
+    window.startCamera = async function(){
+      try {
+        const result = await oldStartCamera.apply(this, arguments);
+        cameraHelp(false, '');
+        return result;
+      } catch (err) {
+        const name = err && err.name;
+        const msg = name === 'NotAllowedError'
+          ? 'Camera permission is blocked. Allow Camera for this site, then reload the page.'
+          : 'The live camera could not be opened. You can use the phone camera instead.';
+        cameraHelp(true, msg);
+        return null;
+      }
+    };
+  }
+
+  // Explain current permission state when the browser supports Permissions API.
+  window.checkCameraPermission = async function(){
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) return;
+      const status = await navigator.permissions.query({name:'camera'});
+      if (status.state === 'denied') {
+        cameraHelp(true, 'Camera permission is currently blocked. Open this site’s browser permissions and set Camera to Allow.');
+      } else if (status.state === 'prompt') {
+        cameraHelp(true, 'The browser will ask for camera permission when you open the camera.');
+      } else {
+        cameraHelp(false, '');
+      }
+    } catch (_) {}
+  };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(checkCameraPermission, 300);
+  });
+})();
+</script>
+
 
 async function runMobileDiagnostics() {
   const el = document.getElementById('mobileDiagnostic');
@@ -1309,19 +1358,7 @@ async function runMobileDiagnostics() {
   const rows = [];
   rows.push(`Browser: ${navigator.userAgent.includes('Chrome') ? 'Chrome' : navigator.userAgent.includes('Safari') ? 'Safari' : 'Other'}`);
   rows.push(`HTTPS / secure context: ${window.isSecureContext ? '✅ YES' : '❌ NO'}`);
-  rows.push(`Live camera allowed here: ${window.isSecureContext || /^(localhost|127\.0\.0\.1|::1)$/.test(location.hostname) ? '✅ YES' : '❌ BLOCKED — HTTPS required'}`);
   rows.push(`Camera API: ${navigator.mediaDevices?.getUserMedia ? '✅ Available' : '❌ Not available'}`);
-
-  if (navigator.mediaDevices?.enumerateDevices) {
-    try {
-      const cameras = await CAMERA_MANAGER.enumerate();
-      rows.push(`Cameras detected: ${cameras.length}`);
-      const rear = cameras.find(d => /back|rear|environment/i.test(d.label || ''));
-      rows.push(`Rear camera: ${rear ? '✅ Detected' : cameras.length ? '🟡 Available but label hidden until permission' : '❌ Not detected'}`);
-    } catch (_) {
-      rows.push('Camera list: Browser did not expose devices');
-    }
-  }
 
   if (navigator.permissions?.query) {
     try {
@@ -1354,3 +1391,6 @@ window.addEventListener('load', () => setTimeout(runMobileDiagnostics, 1000));
 
 </body>
 </html>
+<script>
+window.addEventListener('load', () => setTimeout(() => autoSyncFromGoogle('startup'), 300));
+</script>
