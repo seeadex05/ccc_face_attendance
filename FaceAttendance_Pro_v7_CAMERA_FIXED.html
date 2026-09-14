@@ -28,8 +28,9 @@
   @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
   .card { background:var(--surface); border-radius:16px; padding:16px; margin-bottom:12px; border:1px solid var(--border); }
   .card-title { font-size:1rem; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
-  .camera-container { position:relative; width:100%; border-radius:16px; overflow:hidden; background:#000; aspect-ratio:4/3; }
-  .camera-container video, .camera-container canvas, .camera-container img { width:100%; height:100%; object-fit:cover; display:block; }
+  .camera-container { position:relative; width:100%; border-radius:16px; overflow:hidden; background:#000; aspect-ratio:16/9; }
+  .camera-container video, .camera-container canvas, .camera-container img { width:100%; height:100%; object-fit:contain; display:block; background:#000; }
+  .camera-quality{position:absolute;right:10px;top:10px;background:rgba(0,0,0,.62);backdrop-filter:blur(8px);padding:6px 10px;border-radius:18px;font-size:.68rem;color:#fff;font-weight:600;z-index:5;}
   .camera-overlay { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; pointer-events:none; }
   .rec-status { position:absolute; top:12px; left:12px; background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); padding:6px 12px; border-radius:20px; font-size:0.75rem; color:white; font-weight:600; display:flex; align-items:center; gap:6px; }
   .rec-status::before { content:''; width:8px; height:8px; border-radius:50%; background:var(--success); animation:pulse 1.5s infinite; }
@@ -178,6 +179,7 @@
         <video id="attendanceVideo" autoplay playsinline muted></video>
         <canvas id="attendanceOverlay"></canvas>
         <div class="rec-status" id="recStatus">Scanning...</div>
+         <div class="camera-quality" id="attendanceCameraQuality">Camera: starting…</div>
       </div>
       <div style="display:flex; gap:10px; margin-top:12px;">
         <button class="btn btn-primary" id="btnStartRec" onclick="startRecognition()">▶️ Start Scan</button>
@@ -240,7 +242,7 @@
       </div>
       <button class="btn btn-primary" onclick="saveScriptUrl()">💾 Save URL</button>
       <button class="btn btn-success" onclick="syncToGoogle()">⬆️ Push to Google Sheet</button>
-      <button class="btn btn-info" onclick="syncFromGoogle()">⬇️ Pull from Google Sheet</button><button class="btn btn-outline" onclick="autoSyncFromGoogle('manual')">🔄 Sync All Now</button>
+      <button class="btn btn-info" onclick="syncFromGoogle()">⬇️ Pull from Google Sheet</button>
       <button class="btn btn-outline" onclick="clearLocalData()">🗑️ Clear Local Data</button>
     </div>
 
@@ -375,64 +377,22 @@ const DB = {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   },
 
-  importAll(data, options = {}) {
-    const replace = options.replace === true;
-
-    if (Array.isArray(data.people)) {
-      if (replace) {
-        this.people = data.people;
-      } else {
-        const byId = new Map(this.people.map(p => [String(p.id), p]));
-        const byIdNum = new Map(this.people.filter(p => p.idNum).map(p => [String(p.idNum).toUpperCase(), p]));
-        for (const incoming of data.people) {
-          const existing = byId.get(String(incoming.id)) ||
-            (incoming.idNum ? byIdNum.get(String(incoming.idNum).toUpperCase()) : null);
-          if (existing) Object.assign(existing, incoming);
-          else this.people.push(incoming);
-        }
-      }
-      localStorage.setItem('fa_people', JSON.stringify(this.people));
-    }
-
-    if (Array.isArray(data.attendance)) {
-      if (replace) {
-        this.attendance = data.attendance;
-      } else {
-        const seen = new Set(this.attendance.map(a => `${String(a.personId)}|${a.date}`));
-        for (const incoming of data.attendance) {
-          const key = `${String(incoming.personId)}|${incoming.date}`;
-          if (!seen.has(key)) {
-            this.attendance.push(incoming);
-            seen.add(key);
-          }
-        }
-      }
-      localStorage.setItem('fa_attendance', JSON.stringify(this.attendance));
-    }
-
-    buildFaceMatcher();
-    updateStats();
-    renderPeople();
-    populateSelects();
-    loadRecords();
-    loadTodayAttendance();
-
-    if (options.markClean !== false) this.setPending(false);
+  importAll(data) {
+    if (data.people) { this.people = data.people; this.savePeople(); }
+    if (data.attendance) { this.attendance = data.attendance; this.saveAttendance(); }
+    buildFaceMatcher(); updateStats(); renderPeople(); populateSelects(); loadRecords(); loadTodayAttendance();
+    this.setPending(false);
   }
 };
 
 function updateSyncBadge() {
   const el = document.getElementById('syncBadge');
-  if (!el) return;
   if (DB.scriptUrl && !DB.pendingSync) {
-    el.className = 'sync-badge synced';
-    el.textContent = `✅ Synced • ${DB.people.length} registrations`;
+    el.className = 'sync-badge synced'; el.textContent = '✅ Synced to Google';
   } else if (DB.scriptUrl && DB.pendingSync) {
-    el.className = 'sync-badge pending';
-    el.textContent = `⏳ Sync Pending • ${DB.people.length} local`;
+    el.className = 'sync-badge pending'; el.textContent = '⏳ Sync Pending';
   } else {
-    el.className = 'sync-badge pending';
-    el.textContent = `⏳ Local Only • ${DB.people.length} registrations`;
+    el.className = 'sync-badge pending'; el.textContent = '⏳ Local Only';
   }
 }
 
@@ -463,54 +423,24 @@ async function syncToGoogle() {
   } catch(e) { showToast('Sync failed: ' + e.message, 'error'); }
 }
 
-async function syncFromGoogle(options = {}) {
-  if (!DB.scriptUrl) {
-    showToast('Please set your Google Apps Script URL in Cloud tab', 'error');
-    showSection('cloud');
-    return false;
-  }
-
-  showSyncProgress('Connecting to Google Sheet…');
-
+async function syncFromGoogle() {
+  if (!DB.scriptUrl) { showToast('Please set your Google Apps Script URL in Cloud tab', 'error'); showSection('cloud'); return; }
+  showToast('Pulling from Google Sheet...', 'success');
   try {
     const res = await fetch(DB.scriptUrl + '?action=load', { cache: 'no-store' });
     if (!res.ok) throw new Error('Google Apps Script returned HTTP ' + res.status);
-
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-
-    if (Array.isArray(data.people)) {
+    if (data.people) {
       data.people.forEach(p => {
         if (typeof p.descriptor === 'string') {
-          try { p.descriptor = JSON.parse(p.descriptor); }
-          catch (_) { p.descriptor = null; }
+          try { p.descriptor = JSON.parse(p.descriptor); } catch (_) { p.descriptor = null; }
         }
       });
     }
-
-    const beforePeople = DB.people.length;
-    const beforeAttendance = DB.attendance.length;
-
-    DB.importAll(data, { replace: false, markClean: true });
-
-    const addedPeople = DB.people.length - beforePeople;
-    const addedAttendance = DB.attendance.length - beforeAttendance;
-
-    updateSyncBadge();
-
-    showToast(
-      `✅ Cloud synchronized — ${DB.people.length} registrations, ${DB.attendance.length} attendance records` +
-      ((addedPeople || addedAttendance)
-        ? ` (+${addedPeople} registrations, +${addedAttendance} attendance)`
-        : ''),
-      'success'
-    );
-    return true;
-  } catch (e) {
-    showToast('Pull failed: ' + e.message, 'error');
-    updateSyncBadge();
-    return false;
-  }
+    DB.importAll(data);
+    showToast('✅ Data restored from Google Sheet!', 'success');
+  } catch(e) { showToast('Pull failed: ' + e.message, 'error'); }
 }
 
 function saveScriptUrl() {
@@ -533,7 +463,12 @@ function clearLocalData() {
 let modelsLoaded = false, faceMatcher = null, recognitionInterval = null, currentStream = null;
 let capturedDescriptor = null, capturedImage = null;
 
-const FACE_DUPLICATE_THRESHOLD = 0.60;
+const FACE_DUPLICATE_THRESHOLD = 0.48;
+const FACE_MATCH_THRESHOLD = 0.48;
+const FACE_MATCH_MARGIN = 0.055;
+const FACE_CONFIRM_FRAMES = 2;
+let recognitionVotes = new Map();
+let unknownVotes = 0;
 let pendingUnknown = null;
 
 
@@ -583,7 +518,7 @@ function captureCanvasFrame(video) {
 
 function openUnknownPanel(descriptor, canvas) {
   if (pendingUnknown) return;
-  pendingUnknown = { descriptor:Array.from(descriptor), photo:canvas.toDataURL('image/jpeg',0.88) };
+  pendingUnknown = { descriptor:Array.from(descriptor), photo:canvas.toDataURL('image/jpeg',0.95) };
   document.getElementById('unknownPhoto').src = pendingUnknown.photo;
   document.getElementById('unknownName').value = '';
   document.getElementById('unknownPhone').value = '';
@@ -672,11 +607,12 @@ async function loadModels() {
 }
 
 function buildFaceMatcher() {
-  if (DB.people.length === 0) { faceMatcher = null; return; }
+  if (DB.people.length === 0) { faceMatcher = null; recognitionVotes.clear(); return; }
   const labeledDescriptors = DB.people
-    .filter(p => p.descriptor)
+    .filter(p => Array.isArray(p.descriptor) && p.descriptor.length === 128)
     .map(p => new faceapi.LabeledFaceDescriptors(p.id.toString(), [new Float32Array(p.descriptor)]));
-  faceMatcher = labeledDescriptors.length > 0 ? new faceapi.FaceMatcher(labeledDescriptors, 0.6) : null;
+  faceMatcher = labeledDescriptors.length > 0 ? new faceapi.FaceMatcher(labeledDescriptors, FACE_MATCH_THRESHOLD) : null;
+  recognitionVotes.clear();
 }
 
 // ===================== CAMERA =====================
@@ -713,7 +649,8 @@ async function startCamera(videoEl, preferredFacing='environment') {
   // Rear camera first. If the browser cannot honor the preference,
   // progressively relax the constraints rather than failing immediately.
   const attempts = [
-    { video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: { exact: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } }, audio: false },
+    { video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } }, audio: false },
     { video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
     { video: { facingMode: preferredFacing }, audio: false },
     { video: true, audio: false }
@@ -737,6 +674,14 @@ async function startCamera(videoEl, preferredFacing='environment') {
       });
 
       await videoEl.play();
+
+      const track = stream.getVideoTracks && stream.getVideoTracks()[0];
+      if (track && track.applyConstraints) {
+        try {
+          await track.applyConstraints({ width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30,max:30} });
+        } catch (_) {}
+      }
+      updateCameraQuality(videoEl);
 
       if (help) help.classList.remove('active');
       if (errBox) errBox.classList.remove('active');
@@ -771,6 +716,16 @@ async function startCamera(videoEl, preferredFacing='environment') {
   return null;
 }
 
+function updateCameraQuality(videoEl) {
+  if (!videoEl) return;
+  const w = videoEl.videoWidth || 0, h = videoEl.videoHeight || 0;
+  const text = w && h ? `Rear Camera • ${w}×${h}` : 'Camera: ready';
+  ['registerCameraQuality','attendanceCameraQuality'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  });
+}
+
 function stopCamera() {
   if (currentStream) {
     currentStream.getTracks().forEach(t => t.stop());
@@ -795,10 +750,10 @@ async function capturePhoto() {
   const canvas = document.getElementById('registerCanvas');
   canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
-  const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+  const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.55 })).withFaceLandmarks().withFaceDescriptor();
   if (!detection) { showToast('No face detected. Try again.', 'error'); return; }
   capturedDescriptor = Array.from(detection.descriptor);
-  capturedImage = canvas.toDataURL('image/jpeg', 0.9);
+  capturedImage = canvas.toDataURL('image/jpeg', 0.95);
   document.getElementById('registerPreview').src = capturedImage;
   document.getElementById('registerPreview').style.display = 'block';
   video.style.display = 'none';
@@ -824,10 +779,10 @@ async function handleFileUpload(e) {
   const canvas = document.getElementById('registerCanvas');
   canvas.width = img.width; canvas.height = img.height;
   canvas.getContext('2d').drawImage(img, 0, 0);
-  const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+  const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.55 })).withFaceLandmarks().withFaceDescriptor();
   if (!detection) { showToast('No face in uploaded image.', 'error'); return; }
   capturedDescriptor = Array.from(detection.descriptor);
-  capturedImage = canvas.toDataURL('image/jpeg', 0.9);
+  capturedImage = canvas.toDataURL('image/jpeg', 0.95);
   document.getElementById('registerPreview').src = capturedImage;
   document.getElementById('registerPreview').style.display = 'block';
   document.getElementById('registerVideo').style.display = 'none';
@@ -927,10 +882,16 @@ async function startRecognition() {
     let unknownFound = null;
 
     resized.forEach(detection => {
-      const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+      const ranked = DB.people
+        .filter(p => Array.isArray(p.descriptor) && p.descriptor.length === 128)
+        .map(p => ({ person:p, distance:faceDistance(detection.descriptor, p.descriptor) }))
+        .sort((a,b) => a.distance - b.distance);
+      const best = ranked[0];
+      const second = ranked[1];
+      const margin = best && second ? second.distance - best.distance : Infinity;
+      const isKnown = !!best && best.distance <= FACE_MATCH_THRESHOLD && margin >= FACE_MATCH_MARGIN;
+      const person = isKnown ? best.person : null;
       const box = detection.detection.box;
-      const isKnown = bestMatch.label !== 'unknown';
-      const person = isKnown ? DB.people.find(p => p.id.toString() === bestMatch.label) : null;
 
       ctx.strokeStyle = isKnown ? '#22c55e' : '#f59e0b';
       ctx.lineWidth = 3;
@@ -945,30 +906,47 @@ async function startRecognition() {
       ctx.fillText(label, box.x + 10, Math.max(18, box.y - 7));
 
       if (isKnown && person) {
-        recognizedCount++;
-        if (DB.markAttendance(person.id, DB.getToday(), 'face')) {
-          showToast(`✅ ${person.name} marked present!`, 'success');
-          loadTodayAttendance();
-          updateStats();
-          loadRecords();
+        const key = String(person.id);
+        const votes = (recognitionVotes.get(key) || 0) + 1;
+        recognitionVotes.set(key, votes);
+        unknownVotes = 0;
+        if (votes >= FACE_CONFIRM_FRAMES) {
+          recognizedCount++;
+          if (DB.markAttendance(person.id, DB.getToday(), 'face')) {
+            showToast(`✅ ${person.name} marked present!`, 'success');
+            loadTodayAttendance();
+            updateStats();
+            loadRecords();
+          }
         }
       } else if (!unknownFound) {
         unknownFound = detection;
       }
     });
 
+    // Do not stop the scan on a single uncertain frame. This is important for
+    // preventing one person's face from being temporarily assigned to another.
+    for (const [key, count] of recognitionVotes) {
+      if (count > 0) recognitionVotes.set(key, Math.max(0, count - 1));
+    }
+    if (unknownFound) unknownVotes++; else unknownVotes = 0;
+
     document.getElementById('recStatus').textContent =
-      unknownFound ? '⚠️ Unknown person detected' :
+      unknownFound ? '⚠️ Face not confidently matched' :
       recognizedCount > 0 ? `${recognizedCount} face(s) recognized` : 'Scanning...';
 
-    if (unknownFound) {
+    // Require two consecutive unknown frames before opening registration.
+    if (unknownFound && unknownVotes >= 2) {
       const frame = captureCanvasFrame(video);
       openUnknownPanel(unknownFound.descriptor, frame);
+      unknownVotes = 0;
     }
   }, 1000);
 }
 function stopRecognition() {
   if (recognitionInterval) { clearInterval(recognitionInterval); recognitionInterval = null; }
+  recognitionVotes.clear();
+  unknownVotes = 0;
   stopCamera();
   const ctx = document.getElementById('attendanceOverlay').getContext('2d');
   ctx.clearRect(0, 0, attendanceOverlay.width, attendanceOverlay.height);
@@ -1116,31 +1094,6 @@ function showToast(msg, type='') {
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
-// ===================== AUTOMATIC CLOUD SYNCHRONIZATION =====================
-let autoSyncInProgress = false;
-
-function showSyncProgress(message) {
-  const el = document.getElementById('syncBadge');
-  if (el) {
-    el.className = 'sync-badge pending';
-    el.textContent = '🔄 ' + message;
-  }
-}
-
-async function autoSyncFromGoogle(reason = 'startup') {
-  if (autoSyncInProgress || !DB.scriptUrl) {
-    updateSyncBadge();
-    return false;
-  }
-  autoSyncInProgress = true;
-  try {
-    return await syncFromGoogle({ reason });
-  } finally {
-    autoSyncInProgress = false;
-    updateSyncBadge();
-  }
-}
-
 // ===================== INIT =====================
 window.addEventListener('load', () => {
   loadModels();
@@ -1168,23 +1121,9 @@ let faceAttendanceCameraMode = 'environment';
 async function switchAttendanceCamera() {
   try {
     if (typeof stopCamera === 'function') stopCamera();
-
-    faceAttendanceCameraMode =
-      faceAttendanceCameraMode === 'environment' ? 'user' : 'environment';
-
-    const constraints = {
-      video: { facingMode: { ideal: faceAttendanceCameraMode } },
-      audio: false
-    };
-
-    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-      faceAttendanceCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-      const video = document.querySelector('video');
-      if (video) {
-        video.srcObject = faceAttendanceCameraStream;
-        await video.play().catch(() => {});
-      }
-    }
+    faceAttendanceCameraMode = faceAttendanceCameraMode === 'environment' ? 'user' : 'environment';
+    const video = document.getElementById('attendanceVideo');
+    await startCamera(video, faceAttendanceCameraMode);
   } catch (err) {
     console.warn('Camera switch failed:', err);
   }
@@ -1220,19 +1159,19 @@ async function switchAttendanceCamera() {
       const img = new Image();
       img.onload = async function(){
         const canvas = document.createElement('canvas');
-        const max = 1200;
+        const max = 2000;
         const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
         canvas.width = Math.round(img.naturalWidth * scale);
         canvas.height = Math.round(img.naturalHeight * scale);
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        const photo = canvas.toDataURL('image/jpeg', .88);
+        const photo = canvas.toDataURL('image/jpeg', .95);
 
         if (typeof faceapi !== 'undefined' && faceapi.nets.tinyFaceDetector.params) {
           try {
             const detection = await faceapi.detectSingleFace(
               canvas,
-              new faceapi.TinyFaceDetectorOptions({inputSize:320, scoreThreshold:.5})
+              new faceapi.TinyFaceDetectorOptions({inputSize:416, scoreThreshold:.55})
             ).withFaceLandmarks().withFaceDescriptor();
 
             if (detection) {
@@ -1279,8 +1218,9 @@ async function switchAttendanceCamera() {
       const constraints = {
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, max: 30 }
         },
         audio: false
       };
@@ -1391,6 +1331,3 @@ window.addEventListener('load', () => setTimeout(runMobileDiagnostics, 1000));
 
 </body>
 </html>
-<script>
-window.addEventListener('load', () => setTimeout(() => autoSyncFromGoogle('startup'), 300));
-</script>
